@@ -6,14 +6,18 @@ export class AttrPanel {
     this.model = null;
     this.scheduled = false;
     this.observer = null;
+    this.suppress = false;
     this.render();
   }
 
   setModel(model) {
     if (this.observer) this.observer.disconnect();
     this.model = model;
-    if (model) {
-      this.observer = new MutationObserver(() => this.schedule());
+    if (model) { 
+    this.observer = new MutationObserver(() => {
+    if (!this.suppress) this.schedule();
+    });
+
       this.observer.observe(model, { attributes: true, characterData: true, childList: true, subtree: true });
     }
     this.render();
@@ -47,8 +51,10 @@ export class AttrPanel {
       input.value = m.getAttribute(name) ?? '';
       input.placeholder = def === '' ? '' : String(def);
       input.addEventListener('input', () => {
+        this.suppress = true;
         if (input.value === '') m.removeAttribute(name);
         else m.setAttribute(name, input.value);
+        this.suppress = false;
       });
       row.appendChild(lbl);
       row.appendChild(input);
