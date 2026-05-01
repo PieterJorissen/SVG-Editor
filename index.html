@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>SVG Editor</title>
+  <link rel="stylesheet" href="src/styles.css">
+</head>
+<body>
+  <header id="toolbar">
+    <span class="brand">SVG Editor</span>
+    <div class="group">
+      <button data-action="load">Load SVG</button>
+      <input type="file" id="file-input" accept="image/svg+xml,.svg" hidden>
+      <button data-action="export">Export SVG</button>
+    </div>
+    <div class="group">
+      <span class="label">Insert:</span>
+      <button data-insert="rect">rect</button>
+      <button data-insert="circle">circle</button>
+      <button data-insert="ellipse">ellipse</button>
+      <button data-insert="line">line</button>
+      <button data-insert="polygon">polygon</button>
+      <button data-insert="polyline">polyline</button>
+      <button data-insert="path">path</button>
+      <button data-insert="text">text</button>
+      <button data-insert="g">group</button>
+    </div>
+    <div class="group">
+      <button data-action="delete">Delete</button>
+    </div>
+  </header>
+
+  <main id="editor">
+    <aside id="tree-panel" aria-label="Item tree"></aside>
+
+    <section id="canvas">
+      <div id="svg-host"></div>
+      <div id="overlay">
+        <div id="selection-outline" hidden></div>
+      </div>
+    </section>
+
+    <aside id="attr-panel" aria-label="Attributes"></aside>
+  </main>
+
+  <div id="model-root" hidden></div>
+
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
