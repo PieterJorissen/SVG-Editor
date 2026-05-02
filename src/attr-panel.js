@@ -7,7 +7,6 @@ export class AttrPanel {
     this.model = null;
     this.scheduled = false;
     this.observer = null;
-    this.suppress = false;    
     this.render();
   }
 
@@ -15,16 +14,16 @@ export class AttrPanel {
     if (this.observer) this.observer.disconnect();
     this.model = model;
     if (model) {
-     this.observer = new MutationObserver(() => {
-  if (!this.suppress) this.schedule();
-});
+      this.observer = new MutationObserver(() => {
+        this.schedule();
+      });
       this.observer.observe(model, { attributes: true, characterData: true, childList: true, subtree: true });
     }
     this.render();
   }
 
   schedule() {
-this.render();   
+    this.render();
   }
 
   render() {
@@ -48,11 +47,12 @@ this.render();
       input.type = 'text';
       input.value = m.getAttribute(name) ?? '';
       input.placeholder = def === '' ? '' : String(def);
+      input.addEventListener('keydown', (e) => {
+        e.stopPropagation(); // hard-block global selection/key handlers while editing
+      });
       input.addEventListener('input', () => {
-        this.suppress = true;        
         if (input.value === '') m.removeAttribute(name);
         else m.setAttribute(name, input.value);
-        this.suppress = false;         
       });
       row.appendChild(lbl);
       row.appendChild(input);
@@ -66,16 +66,15 @@ this.render();
       lbl.textContent = 'text';
       const ta = document.createElement('textarea');
       ta.value = m.textContent || '';
+      ta.addEventListener('keydown', (e) => {
+        e.stopPropagation(); // hard-block global selection/key handlers while editing
+      });
       ta.addEventListener('input', () => {
-      this.suppress = true; 
-      m.textContent = ta.value;
-      this.suppress = false;
+        m.textContent = ta.value;
       });
       row.appendChild(lbl);
       row.appendChild(ta);
-      
       this.host.appendChild(row);
     }
   }
 }
-
