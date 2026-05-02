@@ -1,3 +1,4 @@
+
 import { classOf } from './registry.js';
 
 export class AttrPanel {
@@ -6,27 +7,24 @@ export class AttrPanel {
     this.model = null;
     this.scheduled = false;
     this.observer = null;
-    this.suppress = false;
+    this.suppress = false;    
     this.render();
   }
 
   setModel(model) {
     if (this.observer) this.observer.disconnect();
     this.model = model;
-    if (model) { 
-    this.observer = new MutationObserver(() => {
-    if (!this.suppress) this.schedule();
-    });
-
+    if (model) {
+     this.observer = new MutationObserver(() => {
+  if (!this.suppress) this.schedule();
+});
       this.observer.observe(model, { attributes: true, characterData: true, childList: true, subtree: true });
     }
     this.render();
   }
 
   schedule() {
-    if (this.scheduled) return;
-    this.scheduled = true;
-    queueMicrotask(() => { this.scheduled = false; this.render(); });
+this.render();   
   }
 
   render() {
@@ -51,10 +49,10 @@ export class AttrPanel {
       input.value = m.getAttribute(name) ?? '';
       input.placeholder = def === '' ? '' : String(def);
       input.addEventListener('input', () => {
-        this.suppress = true;
+        this.suppress = true;        
         if (input.value === '') m.removeAttribute(name);
         else m.setAttribute(name, input.value);
-        this.suppress = false;
+        this.suppress = false;         
       });
       row.appendChild(lbl);
       row.appendChild(input);
@@ -68,10 +66,16 @@ export class AttrPanel {
       lbl.textContent = 'text';
       const ta = document.createElement('textarea');
       ta.value = m.textContent || '';
-      ta.addEventListener('input', () => { m.textContent = ta.value; });
+      ta.addEventListener('input', () => {
+      this.suppress = true; 
+      m.textContent = ta.value;
+      this.suppress = false;
+      });
       row.appendChild(lbl);
       row.appendChild(ta);
+      
       this.host.appendChild(row);
     }
   }
 }
+
