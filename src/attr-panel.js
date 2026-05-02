@@ -50,7 +50,7 @@ export class AttrPanel {
       input.addEventListener('keydown', (e) => {
         e.stopPropagation(); // hard-block global selection/key handlers while editing
       });
-      input.addEventListener('input', () => {
+      input.addEventListener('blur', () => {
         if (input.value === '') m.removeAttribute(name);
         else m.setAttribute(name, input.value);
       });
@@ -69,7 +69,7 @@ export class AttrPanel {
       ta.addEventListener('keydown', (e) => {
         e.stopPropagation(); // hard-block global selection/key handlers while editing
       });
-      ta.addEventListener('input', () => {
+      ta.addEventListener('blur', () => {
         m.textContent = ta.value;
       });
       row.appendChild(lbl);
