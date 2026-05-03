@@ -1,4 +1,7 @@
-import { CLASS_BY_SVG, createModelElement, classOf, canHaveChild } from './registry.js';
+import {
+  createModelElement, schemaOf, tagOf, isModelElement,
+  canHaveChild, elementsAcceptedBy,
+} from './registry.js';
 import { Renderer } from './renderer.js';
 import { Overlay } from './overlay.js';
 import { TreePanel } from './tree-panel.js';
@@ -12,6 +15,7 @@ const outlineEl = document.getElementById('selection-outline');
 const treeHost = document.getElementById('tree-panel');
 const attrHost = document.getElementById('attr-panel');
 const fileInput = document.getElementById('file-input');
+const insertSelect = document.getElementById('insert-tag');
 
 let modelRoot;
 let renderer;
@@ -20,11 +24,38 @@ let tree;
 let attrs;
 let selected = null;
 
-function setSelected(model) {
-  selected = model;
-  overlay.select(model);
-  tree.setSelected(model);
-  attrs.setModel(model);
+function setSelected(modelElement) {
+  selected = modelElement;
+  overlay.select(modelElement);
+  tree.setSelected(modelElement);
+  attrs.setModel(modelElement);
+  refreshInsertOptions();
+}
+
+function refreshInsertOptions() {
+  const insertTarget = pickInsertTarget(selected || modelRoot);
+  const tags = elementsAcceptedBy(insertTarget);
+  const previous = insertSelect.value;
+  insertSelect.replaceChildren();
+  for (const tag of tags) {
+    const option = document.createElement('option');
+    option.value = tag;
+    option.textContent = tag;
+    insertSelect.appendChild(option);
+  }
+  if (tags.includes(previous)) insertSelect.value = previous;
+}
+
+// Walk up from a starting element to the nearest ancestor whose schema accepts
+// the given child tag. Returns the element itself when accepted, or modelRoot
+// as a last resort.
+function pickInsertTarget(start, childTag = null) {
+  let cursor = start || modelRoot;
+  if (!childTag) return cursor;
+  while (cursor && cursor !== modelRootHost && !canHaveChild(cursor, childTag)) {
+    cursor = cursor.parentNode;
+  }
+  return cursor && cursor !== modelRootHost ? cursor : modelRoot;
 }
 
 function bootstrap(rootModel) {
@@ -36,12 +67,13 @@ function bootstrap(rootModel) {
   modelRootHost.replaceChildren(modelRoot);
 
   renderer = new Renderer(modelRoot, svgHost);
-  overlay = new Overlay(overlayEl, outlineEl, renderer, (m) => {
-    selected = m;
-    tree.setSelected(m);
-    attrs.setModel(m);
+  overlay = new Overlay(overlayEl, outlineEl, renderer, (modelElement) => {
+    selected = modelElement;
+    tree.setSelected(modelElement);
+    attrs.setModel(modelElement);
+    refreshInsertOptions();
   });
-  tree = new TreePanel(treeHost, modelRoot, (m) => setSelected(m));
+  tree = new TreePanel(treeHost, modelRoot, (modelElement) => setSelected(modelElement));
   attrs = new AttrPanel(attrHost);
   setSelected(modelRoot);
 }
@@ -60,37 +92,34 @@ function defaultDocument() {
 bootstrap(defaultDocument());
 
 document.querySelector('#toolbar').addEventListener('click', async (e) => {
-  const t = e.target;
-  if (!(t instanceof HTMLButtonElement)) return;
-  const action = t.dataset.action;
-  const insert = t.dataset.insert;
+  const button = e.target;
+  if (!(button instanceof HTMLButtonElement)) return;
+  const action = button.dataset.action;
 
   if (action === 'load') {
     fileInput.click();
   } else if (action === 'export') {
     exportSvg(modelRoot);
   } else if (action === 'delete') {
-    if (selected && selected !== modelRoot) {
-      const parent = selected.parentNode;
-      const next = selected.previousElementSibling || selected.nextElementSibling || parent;
-      selected.remove();
-      setSelected(next && next !== modelRootHost ? next : modelRoot);
-    }
-  } else if (insert) {
-    const target = pickInsertTarget(insert);
-    if (!target) return;
-    const el = createModelElement(insert);
-    if (insert === 'text') el.textContent = 'Text';
-    target.appendChild(el);
-    setSelected(el);
+    deleteSelected();
+  } else if (action === 'insert') {
+    const tag = insertSelect.value;
+    if (!tag) return;
+    const target = pickInsertTarget(selected || modelRoot, tag);
+    const newEl = createModelElement(tag);
+    if (!newEl) return;
+    if (schemaOf(newEl)?.contentText) newEl.textContent = tag === 'text' ? 'Text' : '';
+    target.appendChild(newEl);
+    setSelected(newEl);
   }
 });
 
-function pickInsertTarget(childTag) {
-  let t = selected || modelRoot;
-  while (t && !canHaveChild(t, childTag)) t = t.parentNode;
-  if (!t || !classOf(t)) return modelRoot;
-  return t;
+function deleteSelected() {
+  if (!selected || selected === modelRoot) return;
+  const parent = selected.parentNode;
+  const fallback = selected.previousElementSibling || selected.nextElementSibling || parent;
+  selected.remove();
+  setSelected(fallback && fallback !== modelRootHost && isModelElement(fallback) ? fallback : modelRoot);
 }
 
 fileInput.addEventListener('change', async () => {
@@ -99,7 +128,7 @@ fileInput.addEventListener('change', async () => {
   try {
     const newRoot = await loadSvgFile(file);
     if (!newRoot) throw new Error('Failed to parse SVG');
-    if (classOf(newRoot)?.svgTag !== 'svg') throw new Error('Loaded root is not <svg>');
+    if (tagOf(newRoot) !== 'svg') throw new Error('Loaded root is not <svg>');
     bootstrap(newRoot);
   } catch (err) {
     alert(err.message || String(err));
@@ -109,13 +138,11 @@ fileInput.addEventListener('change', async () => {
 });
 
 document.addEventListener('keydown', (e) => {
+  const inField = document.activeElement && ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName);
+  if (inField) return;
   if (e.key === 'Delete' || e.key === 'Backspace') {
-    if (document.activeElement && ['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) return;
     if (selected && selected !== modelRoot) {
-      const parent = selected.parentNode;
-      const next = selected.previousElementSibling || selected.nextElementSibling || parent;
-      selected.remove();
-      setSelected(next && next !== modelRootHost ? next : modelRoot);
+      deleteSelected();
       e.preventDefault();
     }
   } else if (e.key === 'Escape') {

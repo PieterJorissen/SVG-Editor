@@ -55,7 +55,8 @@ body {
   margin-right: 4px;
 }
 
-button {
+button,
+#toolbar select {
   background: var(--panel-2);
   color: var(--text);
   border: 1px solid var(--border);
@@ -64,8 +65,10 @@ button {
   font: inherit;
   cursor: pointer;
 }
-button:hover { background: #28304a; }
+button:hover,
+#toolbar select:hover { background: #28304a; }
 button:active { background: #313a58; }
+#toolbar select { min-width: 140px; }
 
 #editor {
   display: grid;
@@ -168,6 +171,7 @@ button:active { background: #313a58; }
 }
 #attr-panel input[type="text"],
 #attr-panel input[type="number"],
+#attr-panel select,
 #attr-panel textarea {
   background: var(--panel-2);
   color: var(--text);
@@ -176,6 +180,13 @@ button:active { background: #313a58; }
   padding: 3px 6px;
   font: inherit;
   width: 100%;
+}
+#attr-panel input[type="color"] {
+  width: 28px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
 }
 #attr-panel textarea {
   min-height: 48px;

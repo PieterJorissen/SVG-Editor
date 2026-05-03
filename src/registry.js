@@ -1,137 +1,147 @@
+import { ELEMENTS, ATTRIBUTE_GROUPS, ATTRIBUTES } from './schema.generated.js';
+import { getType, hasOwnTranslate } from './types/index.js';
+
 export const SVG_NS = 'http://www.w3.org/2000/svg';
+export const XML_NS = 'http://www.w3.org/XML/1998/namespace';
+export const XLINK_NS = 'http://www.w3.org/1999/xlink';
+
+// Coordinate-axis convention by attribute name. SVG 1.1 names follow a
+// regular pattern (x, x1, x2, cx, dx, fx, refX → x-axis; y-counterparts → y).
+// This is grammar, not element-specific code, and lives at the registry layer.
+const X_AXIS_ATTRS = new Set(['x', 'x1', 'x2', 'cx', 'dx', 'fx', 'refX']);
+const Y_AXIS_ATTRS = new Set(['y', 'y1', 'y2', 'cy', 'dy', 'fy', 'refY']);
 
 class EdElement extends HTMLElement {
-  static svgTag = '';
-  static attrs = {};
-  static childTags = [];
+  static schema = null;
 }
 
-class EdSvg extends EdElement {
-  static svgTag = 'svg';
-  static attrs = {
-    width: 800,
-    height: 600,
-    viewBox: '0 0 800 600',
-  };
-  static childTags = ['g', 'rect', 'circle', 'ellipse', 'line', 'polygon', 'polyline', 'path', 'text'];
+const _classByTag = new Map();
+
+function defineAll() {
+  for (const [tag, schema] of Object.entries(ELEMENTS)) {
+    const customTag = 'ed-' + tag;
+    if (customElements.get(customTag)) continue;
+    // Each element gets its own subclass so customElements.define receives a
+    // unique constructor and the class carries its schema as a static.
+    const Sub = class extends EdElement {};
+    Sub.schema = schema;
+    Object.defineProperty(Sub, 'name', { value: 'Ed_' + tag });
+    customElements.define(customTag, Sub);
+    _classByTag.set(tag, Sub);
+  }
 }
 
-class EdG extends EdElement {
-  static svgTag = 'g';
-  static attrs = { transform: '', fill: '', stroke: '', 'stroke-width': '', opacity: '' };
-  static childTags = ['g', 'rect', 'circle', 'ellipse', 'line', 'polygon', 'polyline', 'path', 'text'];
-}
-
-class EdRect extends EdElement {
-  static svgTag = 'rect';
-  static attrs = {
-    x: 0, y: 0, width: 100, height: 100, rx: 0, ry: 0,
-    fill: '#4f8cff', stroke: '', 'stroke-width': '', opacity: '', transform: '',
-  };
-  static childTags = [];
-}
-
-class EdCircle extends EdElement {
-  static svgTag = 'circle';
-  static attrs = {
-    cx: 0, cy: 0, r: 50,
-    fill: '#ef4444', stroke: '', 'stroke-width': '', opacity: '', transform: '',
-  };
-  static childTags = [];
-}
-
-class EdEllipse extends EdElement {
-  static svgTag = 'ellipse';
-  static attrs = {
-    cx: 0, cy: 0, rx: 60, ry: 40,
-    fill: '#22c55e', stroke: '', 'stroke-width': '', opacity: '', transform: '',
-  };
-  static childTags = [];
-}
-
-class EdLine extends EdElement {
-  static svgTag = 'line';
-  static attrs = {
-    x1: 0, y1: 0, x2: 100, y2: 100,
-    stroke: '#000000', 'stroke-width': 2, opacity: '', transform: '',
-  };
-  static childTags = [];
-}
-
-class EdPolygon extends EdElement {
-  static svgTag = 'polygon';
-  static attrs = {
-    points: '0,0 100,0 50,86',
-    fill: '#a855f7', stroke: '', 'stroke-width': '', opacity: '', transform: '',
-  };
-  static childTags = [];
-}
-
-class EdPolyline extends EdElement {
-  static svgTag = 'polyline';
-  static attrs = {
-    points: '0,0 50,50 100,0 150,50',
-    fill: 'none', stroke: '#000000', 'stroke-width': 2, opacity: '', transform: '',
-  };
-  static childTags = [];
-}
-
-class EdPath extends EdElement {
-  static svgTag = 'path';
-  static attrs = {
-    d: 'M 0 0 L 100 0 L 100 100 Z',
-    fill: '#f59e0b', stroke: '', 'stroke-width': '', opacity: '', transform: '',
-  };
-  static childTags = [];
-}
-
-class EdText extends EdElement {
-  static svgTag = 'text';
-  static attrs = {
-    x: 0, y: 0,
-    'font-family': 'sans-serif', 'font-size': 16,
-    fill: '#000000', stroke: '', 'stroke-width': '', opacity: '', transform: '',
-    'text-anchor': '',
-  };
-  static childTags = [];
-  static hasText = true;
-}
-
-export const REGISTRY = [
-  EdSvg, EdG, EdRect, EdCircle, EdEllipse, EdLine,
-  EdPolygon, EdPolyline, EdPath, EdText,
-];
-
-export const TAG_BY_SVG = {};
-export const CLASS_BY_SVG = {};
-
-for (const cls of REGISTRY) {
-  const tag = 'ed-' + cls.svgTag;
-  TAG_BY_SVG[cls.svgTag] = tag;
-  CLASS_BY_SVG[cls.svgTag] = cls;
-  if (!customElements.get(tag)) customElements.define(tag, cls);
-}
+defineAll();
 
 export function isModelElement(node) {
-  return node instanceof HTMLElement && !!node.constructor.svgTag;
+  return node instanceof EdElement;
 }
 
-export function classOf(modelEl) {
-  return modelEl?.constructor;
+export function schemaOf(modelElement) {
+  return modelElement?.constructor?.schema ?? null;
 }
 
-export function createModelElement(svgTag, attrs = {}) {
-  const tag = TAG_BY_SVG[svgTag];
-  if (!tag) return null;
-  const el = document.createElement(tag);
+export function tagOf(modelElement) {
+  return schemaOf(modelElement)?.tag ?? '';
+}
+
+export function displayTagOf(modelElement) {
+  return schemaOf(modelElement)?.displayTag ?? '';
+}
+
+export function attributesOf(modelElement) {
+  const schema = schemaOf(modelElement);
+  if (!schema) return [];
+  const seen = new Set();
+  const out = [];
+  for (const groupName of schema.attributeGroups) {
+    for (const a of (ATTRIBUTE_GROUPS[groupName] ?? [])) {
+      if (!seen.has(a)) { seen.add(a); out.push(a); }
+    }
+  }
+  for (const a of schema.ownAttrs) {
+    if (!seen.has(a)) { seen.add(a); out.push(a); }
+  }
+  return out;
+}
+
+export function attrInfoOf(attrName) {
+  return ATTRIBUTES[attrName] ?? { name: attrName, type: 'CDATA', animatable: false };
+}
+
+export function attrTypeOf(attrName) {
+  const info = attrInfoOf(attrName);
+  return getType(info.type, info);
+}
+
+export function namespaceOf(attrName) {
+  const ns = attrInfoOf(attrName).namespace;
+  if (ns === 'xml') return XML_NS;
+  if (ns === 'xlink') return XLINK_NS;
+  return null;
+}
+
+export function defaultOf(attrName) {
+  return attrInfoOf(attrName).default;
+}
+
+export function isXAxis(attrName) { return X_AXIS_ATTRS.has(attrName); }
+export function isYAxis(attrName) { return Y_AXIS_ATTRS.has(attrName); }
+export function axisOf(attrName) {
+  if (X_AXIS_ATTRS.has(attrName)) return 'x';
+  if (Y_AXIS_ATTRS.has(attrName)) return 'y';
+  return null;
+}
+
+export function hasTranslateForAttr(attrName) {
+  return hasOwnTranslate(attrInfoOf(attrName).type) || axisOf(attrName) != null;
+}
+
+export function canHaveChild(parent, childTag) {
+  const ps = schemaOf(parent);
+  const cs = ELEMENTS[childTag];
+  if (!ps || !cs) return false;
+  const allowed = new Set(ps.contentCategories);
+  for (const cat of cs.categories) if (allowed.has(cat)) return true;
+  return false;
+}
+
+export function elementsAcceptedBy(parent) {
+  const ps = schemaOf(parent);
+  if (!ps) return [];
+  const allowed = new Set(ps.contentCategories);
+  const out = [];
+  for (const [tag, sc] of Object.entries(ELEMENTS)) {
+    for (const cat of sc.categories) {
+      if (allowed.has(cat)) { out.push(tag); break; }
+    }
+  }
+  return out.sort();
+}
+
+export function createModelElement(tag, attrs = {}) {
+  if (!ELEMENTS[tag]) return null;
+  const el = document.createElement('ed-' + tag);
   for (const [k, v] of Object.entries(attrs)) {
-    if (v != null && v !== '') el.setAttribute(k, String(v));
+    if (v == null || v === '') continue;
+    const ns = namespaceOf(k);
+    if (ns) el.setAttributeNS(ns, k, String(v));
+    else el.setAttribute(k, String(v));
   }
   return el;
 }
 
-export function canHaveChild(parent, childSvgTag) {
-  const cls = classOf(parent);
-  if (!cls) return false;
-  return cls.childTags.includes(childSvgTag);
+export function tagFromDisplay(displayTag) {
+  return displayTag?.toLowerCase() ?? '';
+}
+
+export function elementListByCategory() {
+  const out = new Map();
+  for (const [tag, sc] of Object.entries(ELEMENTS)) {
+    for (const cat of sc.categories) {
+      if (!out.has(cat)) out.set(cat, []);
+      out.get(cat).push(tag);
+    }
+  }
+  return out;
 }
