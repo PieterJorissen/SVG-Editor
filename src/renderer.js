@@ -1,4 +1,4 @@
-import { SVG_NS, classOf, isModelElement } from './registry.js';
+import { SVG_NS, schemaOf, displayTagOf, isModelElement, namespaceOf } from './registry.js';
 
 export class Renderer {
   constructor(modelRoot, host) {
@@ -30,28 +30,37 @@ export class Renderer {
     this.host.style.height = h + 'px';
   }
 
+  setAttr(svgEl, name, value) {
+    const ns = namespaceOf(name);
+    if (ns) svgEl.setAttributeNS(ns, name, value);
+    else svgEl.setAttribute(name, value);
+  }
+
+  removeAttr(svgEl, name) {
+    const ns = namespaceOf(name);
+    if (ns) svgEl.removeAttributeNS(ns, name);
+    else svgEl.removeAttribute(name);
+  }
+
   createSvgFor(modelEl) {
-    const cls = classOf(modelEl);
-    const svgEl = document.createElementNS(SVG_NS, cls.svgTag);
+    const schema = schemaOf(modelEl);
+    if (!schema) return null;
+    const svgEl = document.createElementNS(SVG_NS, displayTagOf(modelEl));
     this.modelToSvg.set(modelEl, svgEl);
     svgEl.__model = modelEl;
 
     for (const name of modelEl.getAttributeNames()) {
       const v = modelEl.getAttribute(name);
-      if (v != null && v !== '') svgEl.setAttribute(name, v);
-    }
-    for (const [name, def] of Object.entries(cls.attrs)) {
-      if (!modelEl.hasAttribute(name) && def !== '' && def != null) {
-        svgEl.setAttribute(name, String(def));
-      }
+      if (v != null && v !== '') this.setAttr(svgEl, name, v);
     }
 
-    if (cls.hasText) {
+    if (schema.contentText) {
       svgEl.textContent = modelEl.textContent || '';
     } else {
       for (const child of modelEl.children) {
         if (isModelElement(child)) {
-          svgEl.appendChild(this.createSvgFor(child));
+          const childSvg = this.createSvgFor(child);
+          if (childSvg) svgEl.appendChild(childSvg);
         }
       }
     }
@@ -68,8 +77,8 @@ export class Renderer {
         const svgEl = this.modelToSvg.get(target);
         if (!svgEl) continue;
         const v = target.getAttribute(mut.attributeName);
-        if (v == null || v === '') svgEl.removeAttribute(mut.attributeName);
-        else svgEl.setAttribute(mut.attributeName, v);
+        if (v == null || v === '') this.removeAttr(svgEl, mut.attributeName);
+        else this.setAttr(svgEl, mut.attributeName, v);
         if (target === this.modelRoot && (mut.attributeName === 'width' || mut.attributeName === 'height')) {
           needsResize = true;
         }
@@ -79,7 +88,7 @@ export class Renderer {
         const parentSvg = this.modelToSvg.get(parent);
         if (!parentSvg) continue;
 
-        if (classOf(parent).hasText) {
+        if (schemaOf(parent)?.contentText) {
           parentSvg.textContent = parent.textContent || '';
           continue;
         }
@@ -92,6 +101,7 @@ export class Renderer {
         for (const added of mut.addedNodes) {
           if (!isModelElement(added)) continue;
           const newSvg = this.createSvgFor(added);
+          if (!newSvg) continue;
           const next = added.nextElementSibling;
           const nextSvg = next && isModelElement(next) ? this.modelToSvg.get(next) : null;
           if (nextSvg && nextSvg.parentNode === parentSvg) parentSvg.insertBefore(newSvg, nextSvg);
@@ -100,7 +110,7 @@ export class Renderer {
       } else if (mut.type === 'characterData') {
         let p = mut.target.parentNode;
         while (p && !this.modelToSvg.has(p)) p = p.parentNode;
-        if (p && classOf(p)?.hasText) {
+        if (p && schemaOf(p)?.contentText) {
           this.modelToSvg.get(p).textContent = p.textContent || '';
         }
       }
