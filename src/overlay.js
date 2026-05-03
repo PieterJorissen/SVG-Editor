@@ -1,11 +1,6 @@
-import { classOf } from './registry.js';
-
-const POS_ATTRS = {
-  rect: ['x', 'y'],
-  text: ['x', 'y'],
-  circle: ['cx', 'cy'],
-  ellipse: ['cx', 'cy'],
-};
+import {
+  schemaOf, attributesOf, attrTypeOf, axisOf, isXAxis, isYAxis,
+} from './registry.js';
 
 export class Overlay {
   constructor(host, outline, renderer, onSelect) {
@@ -50,41 +45,52 @@ export class Overlay {
     return cur ? cur.__model : null;
   }
 
+  // Build a drag plan: a list of { name, axis } telling onMove which
+  // attributes to translate and (for axis-aware types) along which axis.
+  // Falls back to translating the `transform` attribute when nothing else
+  // is translatable.
+  buildDragPlan(model) {
+    const plan = [];
+    let hasTransform = false;
+    for (const name of attributesOf(model)) {
+      const type = attrTypeOf(name);
+      if (!type.translate) continue;
+      if (type.axisAware) {
+        if (isXAxis(name)) plan.push({ name, axis: 'x' });
+        else if (isYAxis(name)) plan.push({ name, axis: 'y' });
+      } else if (name === 'transform') {
+        hasTransform = true;
+      } else {
+        plan.push({ name, axis: null });
+      }
+    }
+    if (plan.length === 0 && hasTransform) plan.push({ name: 'transform', axis: null });
+    return plan;
+  }
+
   onDown(e) {
     e.preventDefault();
-    const model = this.hitTest(e.clientX, e.clientY);
-    this.select(model);
+    const target = this.hitTest(e.clientX, e.clientY);
+    this.select(target);
 
-    if (!model || classOf(model).svgTag === 'svg') return;
+    if (!target || schemaOf(target)?.tag === 'svg') return;
 
-    const cls = classOf(model);
-    const drag = {
-      model,
+    const plan = this.buildDragPlan(target);
+    if (plan.length === 0) return;
+
+    const origValues = new Map();
+    for (const step of plan) {
+      origValues.set(step.name, target.getAttribute(step.name) ?? '');
+    }
+
+    this.drag = {
+      target,
+      plan,
+      origValues,
       startX: e.clientX,
       startY: e.clientY,
       pointerId: e.pointerId,
     };
-
-    const posAttrs = POS_ATTRS[cls.svgTag];
-    if (posAttrs) {
-      const [ax, ay] = posAttrs;
-      drag.mode = 'xy';
-      drag.ax = ax;
-      drag.ay = ay;
-      drag.origX = parseFloat(model.getAttribute(ax) ?? '0') || 0;
-      drag.origY = parseFloat(model.getAttribute(ay) ?? '0') || 0;
-    } else if (cls.svgTag === 'line') {
-      drag.mode = 'line';
-      drag.x1 = parseFloat(model.getAttribute('x1') ?? '0') || 0;
-      drag.y1 = parseFloat(model.getAttribute('y1') ?? '0') || 0;
-      drag.x2 = parseFloat(model.getAttribute('x2') ?? '0') || 0;
-      drag.y2 = parseFloat(model.getAttribute('y2') ?? '0') || 0;
-    } else {
-      drag.mode = 'transform';
-      drag.origTransform = model.getAttribute('transform') || '';
-    }
-
-    this.drag = drag;
     this.host.setPointerCapture(e.pointerId);
   }
 
@@ -93,26 +99,20 @@ export class Overlay {
     const dxClient = e.clientX - this.drag.startX;
     const dyClient = e.clientY - this.drag.startY;
     const [dx, dy] = this.clientDeltaToSvg(dxClient, dyClient);
-    const m = this.drag.model;
+    const { target, plan, origValues } = this.drag;
 
-    if (this.drag.mode === 'xy') {
-      m.setAttribute(this.drag.ax, String(this.drag.origX + dx));
-      m.setAttribute(this.drag.ay, String(this.drag.origY + dy));
-    } else if (this.drag.mode === 'line') {
-      m.setAttribute('x1', String(this.drag.x1 + dx));
-      m.setAttribute('y1', String(this.drag.y1 + dy));
-      m.setAttribute('x2', String(this.drag.x2 + dx));
-      m.setAttribute('y2', String(this.drag.y2 + dy));
-    } else if (this.drag.mode === 'transform') {
-      const base = this.drag.origTransform;
-      const t = `translate(${dx} ${dy})`;
-      m.setAttribute('transform', base ? `${t} ${base}` : t);
+    for (const step of plan) {
+      const type = attrTypeOf(step.name);
+      const orig = origValues.get(step.name);
+      const parsed = type.parse(orig);
+      const moved = type.translate(parsed, dx, dy, step.axis);
+      target.setAttribute(step.name, type.serialise(moved));
     }
 
     this.refreshOutline();
   }
 
-  onUp(e) {
+  onUp(_e) {
     if (!this.drag) return;
     try { this.host.releasePointerCapture(this.drag.pointerId); } catch {}
     this.drag = null;
@@ -124,8 +124,10 @@ export class Overlay {
     const rect = svg.getBoundingClientRect();
     const vbAttr = svg.getAttribute('viewBox');
     if (vbAttr) {
-      const [, , vbW, vbH] = vbAttr.split(/[\s,]+/).map(Number);
-      if (rect.width > 0 && rect.height > 0) {
+      const parts = vbAttr.split(/[\s,]+/).map(Number);
+      const vbW = parts[2];
+      const vbH = parts[3];
+      if (rect.width > 0 && rect.height > 0 && Number.isFinite(vbW) && Number.isFinite(vbH)) {
         return [dxClient * (vbW / rect.width), dyClient * (vbH / rect.height)];
       }
     }
@@ -139,26 +141,26 @@ export class Overlay {
   }
 
   refreshOutline() {
-    const m = this.selected;
-    if (!m || classOf(m).svgTag === 'svg') {
+    const target = this.selected;
+    if (!target || schemaOf(target)?.tag === 'svg') {
       this.outline.hidden = true;
       return;
     }
-    const svgEl = this.renderer.svgFor(m);
+    const svgEl = this.renderer.svgFor(target);
     if (!svgEl || typeof svgEl.getBoundingClientRect !== 'function') {
       this.outline.hidden = true;
       return;
     }
-    const r = svgEl.getBoundingClientRect();
-    if (r.width === 0 && r.height === 0) {
+    const bounds = svgEl.getBoundingClientRect();
+    if (bounds.width === 0 && bounds.height === 0) {
       this.outline.hidden = true;
       return;
     }
-    const hostR = this.host.getBoundingClientRect();
+    const hostRect = this.host.getBoundingClientRect();
     this.outline.hidden = false;
-    this.outline.style.left = (r.left - hostR.left) + 'px';
-    this.outline.style.top = (r.top - hostR.top) + 'px';
-    this.outline.style.width = r.width + 'px';
-    this.outline.style.height = r.height + 'px';
+    this.outline.style.left = (bounds.left - hostRect.left) + 'px';
+    this.outline.style.top = (bounds.top - hostRect.top) + 'px';
+    this.outline.style.width = bounds.width + 'px';
+    this.outline.style.height = bounds.height + 'px';
   }
 }

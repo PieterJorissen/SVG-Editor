@@ -1,4 +1,37 @@
-import { classOf, isModelElement } from './registry.js';
+import { schemaOf, displayTagOf, isModelElement } from './registry.js';
+
+// Category-driven label metadata. The set of categories an element belongs to
+// is the only structural input — never the tag.
+function meta(modelElement) {
+  const schema = schemaOf(modelElement);
+  if (!schema) return '';
+  const cats = schema.categories;
+  if (schema.contentText) {
+    const txt = (modelElement.textContent || '').trim();
+    if (txt) return JSON.stringify(txt.slice(0, 16));
+  }
+  if (cats.includes('Shape')) {
+    const w = modelElement.getAttribute('width');
+    const h = modelElement.getAttribute('height');
+    if (w != null && h != null) return `${w}×${h}`;
+    const r = modelElement.getAttribute('r');
+    if (r != null) return `r=${r}`;
+    const rx = modelElement.getAttribute('rx');
+    const ry = modelElement.getAttribute('ry');
+    if (rx != null && ry != null) return `${rx}×${ry}`;
+    const points = modelElement.getAttribute('points');
+    if (points) return `${points.trim().split(/\s+/).length} pts`;
+    return '';
+  }
+  if (cats.includes('Gradient')) {
+    let stops = 0;
+    for (const c of modelElement.children) {
+      if (isModelElement(c) && schemaOf(c)?.tag === 'stop') stops++;
+    }
+    return stops ? `${stops} stops` : '';
+  }
+  return '';
+}
 
 export class TreePanel {
   constructor(host, modelRoot, onSelect) {
@@ -18,10 +51,10 @@ export class TreePanel {
     });
 
     host.addEventListener('click', (e) => {
-      const el = e.target.closest('[data-mid]');
-      if (!el) return;
-      const m = this.idMap.get(el.dataset.mid);
-      if (m && this.onSelect) this.onSelect(m);
+      const labelEl = e.target.closest('[data-mid]');
+      if (!labelEl) return;
+      const modelElement = this.idMap.get(labelEl.dataset.mid);
+      if (modelElement && this.onSelect) this.onSelect(modelElement);
     });
 
     this.render();
@@ -39,33 +72,32 @@ export class TreePanel {
   render() {
     this.idMap = new Map();
     let n = 0;
-    const buildLi = (model) => {
+    const buildLi = (modelElement) => {
       const id = String(n++);
-      this.idMap.set(id, model);
-      const cls = classOf(model);
+      this.idMap.set(id, modelElement);
       const li = document.createElement('li');
       const label = document.createElement('span');
       label.className = 'tree-label';
       label.dataset.mid = id;
       const tag = document.createElement('span');
       tag.className = 'tag';
-      tag.textContent = '<' + cls.svgTag + '>';
+      tag.textContent = '<' + displayTagOf(modelElement) + '>';
       label.appendChild(tag);
 
-      const meta = this.metaFor(model);
-      if (meta) {
-        const m = document.createElement('span');
-        m.className = 'meta';
-        m.textContent = meta;
-        label.appendChild(m);
+      const metaText = meta(modelElement);
+      if (metaText) {
+        const metaSpan = document.createElement('span');
+        metaSpan.className = 'meta';
+        metaSpan.textContent = metaText;
+        label.appendChild(metaSpan);
       }
-      if (model === this.selected) label.classList.add('sel');
+      if (modelElement === this.selected) label.classList.add('sel');
       li.appendChild(label);
 
-      const kids = Array.from(model.children).filter(isModelElement);
-      if (kids.length) {
+      const children = Array.from(modelElement.children).filter(isModelElement);
+      if (children.length) {
         const ul = document.createElement('ul');
-        for (const k of kids) ul.appendChild(buildLi(k));
+        for (const child of children) ul.appendChild(buildLi(child));
         li.appendChild(ul);
       }
       return li;
@@ -75,19 +107,8 @@ export class TreePanel {
     this.host.replaceChildren(ul);
   }
 
-  metaFor(model) {
-    const cls = classOf(model);
-    switch (cls.svgTag) {
-      case 'rect': return `${model.getAttribute('width') ?? ''}×${model.getAttribute('height') ?? ''}`;
-      case 'circle': return `r=${model.getAttribute('r') ?? ''}`;
-      case 'ellipse': return `${model.getAttribute('rx') ?? ''}×${model.getAttribute('ry') ?? ''}`;
-      case 'text': return JSON.stringify((model.textContent || '').slice(0, 16));
-      default: return '';
-    }
-  }
-
-  setSelected(model) {
-    this.selected = model;
+  setSelected(modelElement) {
+    this.selected = modelElement;
     this.render();
   }
 

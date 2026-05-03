@@ -1,5 +1,6 @@
-
-import { classOf } from './registry.js';
+import {
+  schemaOf, displayTagOf, attributesOf, attrTypeOf, attrInfoOf, defaultOf,
+} from './registry.js';
 
 export class AttrPanel {
   constructor(host) {
@@ -10,69 +11,75 @@ export class AttrPanel {
     this.render();
   }
 
-  setModel(model) {
+  setModel(modelElement) {
     if (this.observer) this.observer.disconnect();
-    this.model = model;
-    if (model) {
-      this.observer = new MutationObserver(() => {
-        this.schedule();
+    this.model = modelElement;
+    if (modelElement) {
+      this.observer = new MutationObserver(() => this.schedule());
+      this.observer.observe(modelElement, {
+        attributes: true,
+        characterData: true,
+        childList: true,
+        subtree: true,
       });
-      this.observer.observe(model, { attributes: true, characterData: true, childList: true, subtree: true });
     }
     this.render();
   }
 
   schedule() {
-    this.render();
+    if (this.scheduled) return;
+    this.scheduled = true;
+    queueMicrotask(() => { this.scheduled = false; this.render(); });
   }
 
   render() {
-    const m = this.model;
-    if (!m) {
+    const modelElement = this.model;
+    if (!modelElement) {
       this.host.innerHTML = '<h3>Attributes</h3><div class="empty">Nothing selected</div>';
       return;
     }
-    const cls = classOf(m);
     this.host.innerHTML = '';
-    const h = document.createElement('h3');
-    h.textContent = `<${cls.svgTag}>`;
-    this.host.appendChild(h);
+    const heading = document.createElement('h3');
+    heading.textContent = `<${displayTagOf(modelElement)}>`;
+    this.host.appendChild(heading);
 
-    for (const [name, def] of Object.entries(cls.attrs)) {
+    for (const name of attributesOf(modelElement)) {
       const row = document.createElement('div');
       row.className = 'row';
-      const lbl = document.createElement('label');
-      lbl.textContent = name;
-      const input = document.createElement('input');
-      input.type = 'text';
-      input.value = m.getAttribute(name) ?? '';
-      input.placeholder = def === '' ? '' : String(def);
-      input.addEventListener('keydown', (e) => {
-        e.stopPropagation(); // hard-block global selection/key handlers while editing
+      const label = document.createElement('label');
+      label.textContent = name;
+      label.title = `${name} : ${attrInfoOf(name).type}`;
+      row.appendChild(label);
+
+      const type = attrTypeOf(name);
+      const currentValue = modelElement.getAttribute(name) ?? '';
+      const widget = type.widget(currentValue, (newValue) => {
+        if (newValue === '' || newValue == null) modelElement.removeAttribute(name);
+        else modelElement.setAttribute(name, String(newValue));
       });
-      input.addEventListener('blur', () => {
-        if (input.value === '') m.removeAttribute(name);
-        else m.setAttribute(name, input.value);
-      });
-      row.appendChild(lbl);
-      row.appendChild(input);
+      widget.addEventListener('keydown', (e) => e.stopPropagation(), true);
+
+      const placeholder = defaultOf(name);
+      if (placeholder != null) {
+        const inner = widget.matches?.('input,textarea')
+          ? widget
+          : widget.querySelector?.('input,textarea');
+        if (inner && !inner.value) inner.placeholder = String(placeholder);
+      }
+      row.appendChild(widget);
       this.host.appendChild(row);
     }
 
-    if (cls.hasText) {
+    if (schemaOf(modelElement)?.contentText) {
       const row = document.createElement('div');
       row.className = 'row';
-      const lbl = document.createElement('label');
-      lbl.textContent = 'text';
+      const label = document.createElement('label');
+      label.textContent = 'text';
       const ta = document.createElement('textarea');
-      ta.value = m.textContent || '';
-      ta.addEventListener('keydown', (e) => {
-        e.stopPropagation(); // hard-block global selection/key handlers while editing
-      });
-      ta.addEventListener('blur', () => {
-        m.textContent = ta.value;
-      });
-      row.appendChild(lbl);
+      ta.value = modelElement.textContent || '';
+      ta.addEventListener('keydown', (e) => e.stopPropagation(), true);
+      ta.addEventListener('change', () => { modelElement.textContent = ta.value; });
+      row.appendChild(label);
       row.appendChild(ta);
       this.host.appendChild(row);
     }

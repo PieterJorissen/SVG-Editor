@@ -1,13 +1,14 @@
 // Per-VALUE_TYPE registry. Each entry implements:
-//   parse(s)     — string -> typed value
-//   serialise(v) — typed value -> string
-//   default      — the default typed value
-//   widget(value, onChange) -> HTMLElement
-//   translate?(value, dx, dy) — present only on geometry types whose value
-//                               carries both axes (Points, PathData, TransformList).
-//                               Scalar coordinate types (Length, Coordinate, Number)
-//                               are translated by the registry.axisOf() helper, since
-//                               the type alone cannot decide x vs y.
+//   parse(s)                   — string -> typed value
+//   serialise(v)               — typed value -> string
+//   default                    — the default typed value
+//   widget(value, onChange)    — HTMLElement
+//   translate?(v, dx, dy, axis)— optional. For compound geometry types
+//                                (Points, PathData, TransformList) axis is
+//                                ignored — both deltas apply. For scalar
+//                                coordinate types (Length, Coordinate, Number)
+//                                axis ∈ {'x','y',null} selects which delta to
+//                                add; null leaves the value unchanged.
 //
 // All widgets emit on `change` (commit on blur), not `input`, so live drag
 // edits don't fight a re-rendering attribute panel.
@@ -77,6 +78,8 @@ const NUMBER_TYPE = {
   parse: (s) => NUM(s, 0),
   serialise: (v) => String(v),
   default: 0,
+  axisAware: true,
+  translate: (v, dx, dy, axis) => v + (axis === 'x' ? dx : axis === 'y' ? dy : 0),
   widget: (v, oc) => numberInput(v, oc),
 };
 
@@ -96,6 +99,11 @@ const LENGTH_TYPE = {
   },
   serialise: ({ n, unit }) => `${n}${unit || ''}`,
   default: { n: 0, unit: '' },
+  axisAware: true,
+  translate: ({ n, unit }, dx, dy, axis) => ({
+    n: n + (axis === 'x' ? dx : axis === 'y' ? dy : 0),
+    unit,
+  }),
   widget: textInput,
 };
 
@@ -128,7 +136,7 @@ const POINTS_TYPE = {
   },
   serialise: (pts) => pts.map(([x, y]) => `${x},${y}`).join(' '),
   default: [],
-  translate: (pts, dx, dy) => pts.map(([x, y]) => [x + dx, y + dy]),
+  translate: (pts, dx, dy, _axis) => pts.map(([x, y]) => [x + dx, y + dy]),
   widget: textInput,
 };
 
@@ -197,7 +205,7 @@ const PATH_DATA_TYPE = {
   parse: (s) => s ?? '',
   serialise: (v) => v ?? '',
   default: '',
-  translate: (v, dx, dy) => translatePathData(v, dx, dy),
+  translate: (v, dx, dy, _axis) => translatePathData(v, dx, dy),
   widget: textArea,
 };
 
@@ -205,7 +213,7 @@ const TRANSFORM_LIST_TYPE = {
   parse: (s) => s ?? '',
   serialise: (v) => v ?? '',
   default: '',
-  translate: (v, dx, dy) => {
+  translate: (v, dx, dy, _axis) => {
     const t = `translate(${dx} ${dy})`;
     return v ? `${t} ${v}` : t;
   },
