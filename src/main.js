@@ -6,6 +6,18 @@ import { TreePanel } from './view/tree-panel.js';
 import { AttrPanel } from './view/attr-panel.js';
 import { loadSvgFile, exportSvg } from './io/file-io.js';
 
+// Wires the editor's layers together. This file owns no domain logic
+// of its own — it just builds the Document, mounts the panels, and
+// translates DOM-level UI events (toolbar clicks, file picker, key
+// presses) into method calls on the modules below.
+//
+// The relevant chapter for the structural shape of an SVG document is
+// struct.html (chapter 5 "Document Structure") — `<svg>`, `<g>`,
+// `<defs>`, `<use>` and the way they nest. The default document built
+// below is itself a Conforming SVG Document per conform.html §2.3.1,
+// because we open with the SVG namespace and only use schema-declared
+// elements and attributes.
+
 const svgHost = window.document.getElementById('svg-host');
 const overlayEl = window.document.getElementById('overlay');
 const outlineEl = window.document.getElementById('selection-outline');
@@ -20,6 +32,12 @@ let overlay;
 let tree;
 let attrs;
 
+// Disposes the previous wiring (so observers, listeners and pointer
+// captures do not leak across documents) and instantiates fresh
+// Canvas, Overlay, TreePanel and AttrPanel against the new Document.
+// Selection defaults to the root `<svg>`, which is itself a valid
+// element to inspect — struct.html §5 treats the outermost `<svg>` as
+// a regular structural element with attributes and children.
 function bootstrap(nextDoc) {
   if (overlay) overlay.dispose();
   if (canvas) canvas.dispose();
@@ -38,6 +56,12 @@ function bootstrap(nextDoc) {
   refreshInsertOptions();
 }
 
+// Repopulates the "insert element" dropdown based on what the spec
+// allows as a child of the current insertion target. The list comes
+// from `elementsAcceptedBy`, which evaluates the DTD content model
+// from svgdtd.html — the browser does not enforce content models at
+// runtime, so this filtering is purely an editor affordance to keep
+// users from producing schema-invalid trees.
 function refreshInsertOptions() {
   const target = pickInsertTarget(doc.selection || doc.root);
   const tags = elementsAcceptedBy(target.localName);
@@ -52,6 +76,12 @@ function refreshInsertOptions() {
   if (tags.includes(previous)) insertSelect.value = previous;
 }
 
+// Walks up the ancestor chain looking for the nearest element whose
+// content model accepts `childTag`. If none of the ancestors do, we
+// fall back to the document root — a sensible default since the root
+// `<svg>` accepts every "structure" and "shape" category. Without a
+// `childTag` we just return the current selection unchanged. Same
+// content-model source as above (svgdtd.html).
 function pickInsertTarget(start, childTag = null) {
   let cursor = start || doc.root;
   if (!childTag) return cursor;
@@ -61,6 +91,13 @@ function pickInsertTarget(start, childTag = null) {
   return cursor && cursor.namespaceURI === SVG_NS ? cursor : doc.root;
 }
 
+// Builds the starter document the editor opens with. The root `<svg>`
+// declares its viewport via `width`/`height` and a matching `viewBox`
+// — the establishing-viewport rule from coords.html §7.2 — and the
+// children are the canonical examples of each shape category from
+// shapes.html §9 plus a `<text>` from text.html §10. Once the live
+// SVG is mounted by Canvas, the browser renders it according to those
+// chapters.
 function defaultDocument() {
   const svg = window.document.createElementNS(SVG_NS, 'svg');
   svg.setAttribute('width', '800');
@@ -84,6 +121,12 @@ function defaultDocument() {
 
 bootstrap(defaultDocument());
 
+// Toolbar dispatcher. Click events on the toolbar surface — load,
+// export, insert, delete — are dispatched here. The button-vs-other
+// guard keeps the listener from firing on layout chrome. Each branch
+// turns a single user gesture into a method call on the appropriate
+// module (file-io for load/export, Document for insert/delete);
+// interact.html §16 covers DOM event dispatch in general.
 window.document.querySelector('#toolbar').addEventListener('click', async (e) => {
   const button = e.target;
   if (!(button instanceof HTMLButtonElement)) return;
@@ -106,6 +149,11 @@ window.document.querySelector('#toolbar').addEventListener('click', async (e) =>
   }
 });
 
+// Removes the current selection from the document and picks a sensible
+// fallback selection (previous sibling, next sibling, or parent). The
+// browser handles the actual unlinking via `el.remove()`; the
+// MutationObserver inside Document then fires a `change` event that
+// repaints the tree and attribute panels.
 function deleteSelected() {
   const sel = doc.selection;
   if (!sel || sel === doc.root) return;
@@ -115,6 +163,12 @@ function deleteSelected() {
   doc.selection = fallback && fallback.namespaceURI === SVG_NS ? fallback : doc.root;
 }
 
+// File picker → loadSvgFile → bootstrap. The hidden input is triggered
+// from the toolbar handler above; when the user picks a file, we hand
+// it to `loadSvgFile` (which uses DOMParser per conform.html's parsing
+// requirements) and rebuild the editor around the resulting Document.
+// The input value is reset so picking the same file twice still
+// triggers a `change`.
 fileInput.addEventListener('change', async () => {
   const file = fileInput.files?.[0];
   if (!file) return;
@@ -128,6 +182,11 @@ fileInput.addEventListener('change', async () => {
   }
 });
 
+// Keyboard shortcuts. `Delete` / `Backspace` removes the selection,
+// `Escape` clears it back to the root. Guards against firing while
+// the user is typing inside an `<input>`, `<textarea>` or `<select>`,
+// because those should keep their native key handling. Browser-level
+// key dispatch is described in interact.html §16.5.
 window.document.addEventListener('keydown', (e) => {
   const inField = window.document.activeElement
     && ['INPUT', 'TEXTAREA', 'SELECT'].includes(window.document.activeElement.tagName);
