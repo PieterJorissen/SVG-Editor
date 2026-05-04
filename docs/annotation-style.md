@@ -1,30 +1,22 @@
 # Annotation style guide
 
-This file is the contract for the spec-annotation pass on `src/`. The
-contract lives on disk so it survives conversation compression. Every
-file annotated in Phases A and C must follow this guide. Revisions to
-the style happen here, not in chat.
+This file is the contract for the spec-annotation rewrite pass on `src/`.
+The agent reads it at file boundaries during the independent Phase C
+run. Revisions to the style happen here, not in chat.
 
 ## Reader
 
-The annotations are written for someone who:
-
-- knows neither JavaScript idioms nor SVG concepts,
-- is in the codebase to find a bug,
-- is willing to look up one or two things per file as long as the arc
-  keeps them oriented most of the time.
-
-Don't assume prior context. Don't gate-keep. Trust the arc to do its
-job across files — each annotation only carries what is load-bearing
-for *its* file, and lets later files take their turn.
+The annotations are written for someone with little prior JavaScript
+and little prior SVG knowledge, who is in the codebase to find a bug.
+One or two lookups per file are acceptable as long as the arc keeps the
+reader oriented most of the time.
 
 ## Arc (reading order)
 
-User-journey order. Each file's header carries `prev:` and `next:`
-anchors. Anchors are written last, at the end of Phase C, so all
-twelve resolve together.
+User-journey order. Anchors are written last, at the end of Phase C,
+so all twelve resolve together.
 
-1. `src/main.js` — entrypoint, wires layers
+1. `src/main.js` — entrypoint
 2. `src/io/file-io.js` — load and export
 3. `src/view/canvas.js` — mount the SVG viewport
 4. `src/view/overlay.js` — selection and drag
@@ -40,126 +32,98 @@ twelve resolve together.
 `src/schema.generated.js`, `src/styles.css`, `index.html`, `scripts/`,
 and `vendor/` are out of scope.
 
-## File header
+## File header (~10 lines)
 
-Each annotated file opens with a comment block of the following shape.
-Length adapts to the file's complexity (see *Granularity rule* below) —
-a simple file can have a four-line header, a complex one may run to
-twelve. Keep the order fixed.
+Fixed shape, five sections:
 
 ```
-// <one-line statement of what this file is>
+// <role: one-line statement of what this file is>
 //
-// What it owns:
-//   <one or two lines>
-// Where it sits:
-//   <one line summarising what calls in / what it calls>
-// Common bugs that surface here:
+// Inputs:  <one line — what calls in, what data flows in>
+// Outputs: <one line — what this file emits or returns>
+// Common bugs:
 //   - <symptom>
 //   - <symptom>
-// Spec hooks (browser-side):
-//   <chapter(s) the browser uses to operationalise this layer>
 //
 // prev: <file>  ·  next: <file>
 ```
 
-The header is the most important part of the annotation. A reader who
-opens a single file cold should know within ten lines what the file
-does, what is around it, and why a bug led them here.
+No essay. The header ends at roughly ten lines.
 
-## Granularity rule
+## Per-block annotations (≤ 4 lines)
 
-Adaptive, deliberately uneven across the codebase.
+Hard cap of four lines per inline comment block.
 
-- **Easy code carries the architecture talk.** When a method is short
-  and obvious (a one-line setter, a getter, a `dispose` that detaches
-  listeners), do not paraphrase it. Use the surrounding block, if any,
-  to say *why this layer owns the call* rather than *what the call does*.
-- **Hard code carries the code-explanation.** When a method is intricate
-  (path-data translation, viewBox-to-screen mapping, mutation observer
-  rebroadcast), the block leans toward what the code is doing
-  step-by-step, with the architectural framing kept short.
-- **When both are heavy** (rare), the block lengthens to reflect the
-  density. The extra length is itself the signal — the prose never
-  announces difficulty. Lookups are an acceptable cost in this case;
-  prefer adding lines over compressing the explanation past the point
-  it can teach the reader.
+- **Easy code → notes carry architecture.** When the code is short and
+  obvious, use the comment to say *why this layer owns the call*, not
+  what the call does.
+- **Hard code → notes explain code.** When the code is intricate, the
+  comment explains what is happening; architectural framing stays
+  short or moves to the file header.
+- **When both are heavy**, the prose density rises within the four-line
+  cap. The density is the signal; the prose never announces "this is
+  hard".
 
-The annotations are a manual, not a tour. They reflect the shape of
-the code rather than describing it from outside.
+Don't paraphrase the code. The reader has the code right there.
 
 ## Voice and style
 
-- Use third person ("the editor", "the browser", "this layer"). Use
-  second person ("you") only in the file header, sparingly.
-- Sentences over paragraphs; paragraphs over bullets, except inside the
-  file header.
-- No emoji.
-- No first person ("I", "we") in code comments. PR descriptions are
-  different.
-- Cite SVG vendor files inline by filename and section, not as headings.
-  Example: "the browser parses the same grammar as `paths.html` §8.3".
-- **Browser-truth.** When SVG 1.1 differs from current browser
-  behaviour, describe the browser. A brief "(SVG 2 dropped this)" aside
-  is welcome when it teaches something; otherwise omit. We will move
-  to SVG 2 documentation later, so divergences are educational rather
-  than authoritative here.
-- Don't announce difficulty. Don't announce structure
-  ("First we ... then we ..."). Don't announce the next file. The arc
-  anchors carry navigation; the prose carries content.
-- Don't say "this is hard" or "this is interesting"; the prose density
-  reflects it.
+- Third person ("the editor", "the browser", "this layer"). Second
+  person ("you") only in the file header, sparingly.
+- Sentences over paragraphs.
+- No emoji, no first person.
+- Cite SVG vendor files inline by filename and section. Example:
+  "the browser parses the same grammar as `paths.html` §8.3".
+- **Browser-truth with SVG 2 educational asides.** When SVG 1.1
+  differs from current browser behaviour, describe the browser, then
+  add a short aside such as "(SVG 2 dropped this)" or "(SVG 2
+  superseded `xlink:href` with `href`)" when it teaches something. The
+  codebase will move to SVG 2 documentation later.
+- Don't announce difficulty, don't announce structure, don't announce
+  the next file. The arc anchors carry navigation; the prose carries
+  content.
 
 ## Symptom → file map
 
 Lives in `CLAUDE.md` at the repo root, not inside `src/`. Format:
 
 ```
-| Symptom                                  | Start at                  | Why                              |
-| ---------------------------------------- | ------------------------- | -------------------------------- |
-| Drag moves the wrong attribute           | view/overlay.js → rules/grammars.js | drag plan + grammar.translate    |
-| Exported file looks different from canvas | io/file-io.js             | default-equal omission, NS       |
-| Insert menu missing a tag                | rules/queries.js → main.js | content-model filter + ancestor walk |
-| Attribute clears unexpectedly            | doc/document.js           | empty-string → removeAttribute   |
-| ...                                      | ...                       | ...                              |
+| Symptom                                   | Start at                             | Why                              |
+| ----------------------------------------- | ------------------------------------ | -------------------------------- |
+| Drag moves the wrong attribute            | view/overlay.js → rules/grammars.js  | drag plan + grammar.translate    |
+| Exported file looks different from canvas | io/file-io.js                        | default-equal omission, NS       |
+| Insert menu missing a tag                 | rules/queries.js → main.js           | content-model filter             |
+| Attribute clears unexpectedly             | doc/document.js                      | empty-string → removeAttribute   |
 ```
 
-The map is written at the end of Phase C, when every file's role is
-fresh, and updated as files change.
+Written at the end of Phase C, when every file's role is fresh.
 
 ## REVIEW markers
 
 Wherever a judgement call is made that the user would plausibly make
-differently, leave an inline marker on the line immediately above the
-relevant prose:
+differently:
 
 ```
 // REVIEW(annotation): <one-line concern>
 ```
 
-Mark generously. The user has stated explicitly that they are the bar.
-Over-marking is correct; under-marking is not. A marker is cheap; an
-unflagged drift is not.
-
-Markers may also be left at the *file header* level for cross-file
-concerns (voice drift, anchor mismatch, scope creep) — same syntax,
-placed before the file header.
+Mark generously. The user is the bar — over-marking is correct,
+under-marking is not.
 
 ## Phase plan
 
-**A — calibration.** Three files, written against this guide, in this
-order:
+**A — calibration.** Three files, in this order:
 
 1. `src/rules/grammars.js`
 2. `src/view/overlay.js`
 3. `src/main.js`
 
 These three span the shape variety: data-and-spec, logic-and-cross-refs,
-wiring. Arc anchors are deferred to the end of Phase C.
+wiring. Arc anchors deferred.
 
 **B — sign-off.** User reviews. This file is updated to capture any
-new rulings; if no rulings emerge, the file is unchanged. User signs
-off explicitly ("calibrated, continue") before Phase C starts.
+new rulings. User signs off explicitly ("calibrated, continue") before
+Phase C.
 
 **C — independent batch.** Remaining nine files in one batch on the
 same branch:
@@ -172,19 +136,17 @@ same branch:
 - `src/doc/edit-session.js`
 - `src/widgets/index.js`
 - `src/rules/queries.js`
-- `src/rules/index.js` (barrel — minimal annotation, role only)
+- `src/rules/index.js` (barrel — minimal annotation)
 
-REVIEW markers are left wherever a call was uncertain. Anchors are
-written across all twelve files at the end of this phase. The symptom
-map is written into `CLAUDE.md` at the end of this phase.
+REVIEW markers are left wherever a call was uncertain. Arc anchors and
+the `CLAUDE.md` symptom map are written at the end of this phase.
 
 **D — escalation.** A single message lists every REVIEW marker:
-numbered, each entry showing file:line, the choice made, the
-alternative, and a one-sentence reason. User replies only on items
-they would change.
+numbered, with file:line, choice made, alternative, and a one-sentence
+reason. The user replies only on items they would change.
 
-**E — cleanup.** User's decisions are applied, every REVIEW marker is
-removed, and the branch is review-ready.
+**E — cleanup.** The user's decisions are applied; every REVIEW marker
+is removed; the branch is review-ready.
 
 No self-audit step between C and D.
 
@@ -195,17 +157,3 @@ No self-audit step between C and D.
 - `index.html` — markup
 - `scripts/build-schema.mjs` — build tooling
 - `vendor/REC-SVG11-20110816/` — source material
-
-## Mitigating context drift during Phase C
-
-The on-disk contract is the primary defence. Two further measures:
-
-- **Pre-flight summary.** At the top of Phase C, the agent posts a
-  short summary of the rules it is about to apply, paraphrased from
-  this file. The user confirms or corrects before files are written.
-- **Re-read at boundaries.** The agent reads this file at the start of
-  each new file in Phase C, accepting the token cost as insurance.
-
-If the agent notices voice drift between earlier Phase C files and
-later ones, it flags this as a REVIEW item rather than silently
-revising earlier work.
