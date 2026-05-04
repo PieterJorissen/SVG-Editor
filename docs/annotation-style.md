@@ -141,6 +141,11 @@ same branch:
 REVIEW markers are left wherever a call was uncertain. Arc anchors and
 the `CLAUDE.md` symptom map are written at the end of this phase.
 
+**C.5 — self-audit.** A single bounded pass over the Phase C diff. See
+*Self-audit* below for the exact checks. Mechanical findings are fixed
+in place; subjective findings become REVIEW markers. The audit does
+not recurse — there is no audit-after-fix step.
+
 **D — escalation.** A single message lists every REVIEW marker:
 numbered, with file:line, choice made, alternative, and a one-sentence
 reason. The user replies only on items they would change.
@@ -148,7 +153,34 @@ reason. The user replies only on items they would change.
 **E — cleanup.** The user's decisions are applied; every REVIEW marker
 is removed; the branch is review-ready.
 
-No self-audit step between C and D.
+## Self-audit
+
+A single-pass sweep run once at C.5, bounded explicitly to avoid
+recursion: the audit runs once, mechanical findings are fixed in
+place, subjective findings become REVIEW markers rather than
+triggering another revision cycle.
+
+**Mechanical checks** (grep over the Phase C diff; fix in place if the
+fix is small):
+
+- `this is hard`, `this is interesting`, `let me`, `we'll`, `I'll` —
+  telling-not-showing or first-person leaks
+- Comment blocks longer than four lines
+- File headers longer than twelve lines
+- Files missing the "Common bugs" section in the header
+- Missing or malformed arc anchors
+- Emoji in source
+
+**Subjective checks** (one read-through; results become REVIEW markers,
+not immediate revisions):
+
+- Voice drift between earliest and latest Phase C files
+- Per-block density that does not match the difficulty of the code
+- SVG 1.1 / browser divergences without an SVG 2 aside where one would
+  teach something
+
+If a mechanical fix is non-trivial (more than ~10 lines of comment
+churn), it is escalated as a REVIEW marker instead of fixed in place.
 
 ## Out of scope
 
