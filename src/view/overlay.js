@@ -1,28 +1,28 @@
 import {
-  schemaOf, attributesOf, attrTypeOf, axisOf, isXAxis, isYAxis,
-} from './registry.js';
+  isSvgElement, attributesOf, attrTypeOf, isXAxis, isYAxis,
+} from '../rules/index.js';
 
 export class Overlay {
-  constructor(host, outline, renderer, onSelect) {
+  constructor(host, outline, doc) {
     this.host = host;
     this.outline = outline;
-    this.renderer = renderer;
-    this.onSelect = onSelect;
-    this.selected = null;
+    this.doc = doc;
     this.drag = null;
 
-    this._onDown = (e) => this.onDown(e);
-    this._onMove = (e) => this.onMove(e);
-    this._onUp = (e) => this.onUp(e);
+    this._onDown = (e) => this._onPointerDown(e);
+    this._onMove = (e) => this._onPointerMove(e);
+    this._onUp = (e) => this._onPointerUp(e);
     this._refresh = () => this.refreshOutline();
+    this._onSelectionChange = () => this.refreshOutline();
+    this._onDocChange = () => this.refreshOutline();
 
     host.addEventListener('pointerdown', this._onDown);
     host.addEventListener('pointermove', this._onMove);
     host.addEventListener('pointerup', this._onUp);
     host.addEventListener('pointercancel', this._onUp);
-
     window.addEventListener('resize', this._refresh);
-    this.renderer.host.addEventListener('scroll', this._refresh, true);
+    doc.addEventListener('selectionchange', this._onSelectionChange);
+    doc.addEventListener('change', this._onDocChange);
   }
 
   dispose() {
@@ -31,31 +31,26 @@ export class Overlay {
     this.host.removeEventListener('pointerup', this._onUp);
     this.host.removeEventListener('pointercancel', this._onUp);
     window.removeEventListener('resize', this._refresh);
-    this.renderer.host.removeEventListener('scroll', this._refresh, true);
+    this.doc.removeEventListener('selectionchange', this._onSelectionChange);
+    this.doc.removeEventListener('change', this._onDocChange);
   }
 
   hitTest(clientX, clientY) {
     const prev = this.host.style.pointerEvents;
     this.host.style.pointerEvents = 'none';
-    const target = document.elementFromPoint(clientX, clientY);
+    const target = window.document.elementFromPoint(clientX, clientY);
     this.host.style.pointerEvents = prev;
-    if (!target) return null;
-    let cur = target;
-    while (cur && !cur.__model) cur = cur.parentNode;
-    return cur ? cur.__model : null;
+    if (!isSvgElement(target)) return null;
+    return target;
   }
 
-  // Build a drag plan: a list of { name, axis } telling onMove which
-  // attributes to translate and (for axis-aware types) along which axis.
-  // Falls back to translating the `transform` attribute when nothing else
-  // is translatable.
-  buildDragPlan(model) {
+  buildDragPlan(el) {
     const plan = [];
     let hasTransform = false;
-    for (const name of attributesOf(model)) {
-      const type = attrTypeOf(name);
-      if (!type.translate) continue;
-      if (type.axisAware) {
+    for (const name of attributesOf(el.localName)) {
+      const grammar = attrTypeOf(name);
+      if (!grammar.translate) continue;
+      if (grammar.axisAware) {
         if (isXAxis(name)) plan.push({ name, axis: 'x' });
         else if (isYAxis(name)) plan.push({ name, axis: 'y' });
       } else if (name === 'transform') {
@@ -68,59 +63,50 @@ export class Overlay {
     return plan;
   }
 
-  onDown(e) {
+  _onPointerDown(e) {
     e.preventDefault();
     const target = this.hitTest(e.clientX, e.clientY);
-    this.select(target);
+    this.doc.selection = target ?? this.doc.root;
 
-    if (!target || schemaOf(target)?.tag === 'svg') return;
+    if (!target || target === this.doc.root) return;
 
     const plan = this.buildDragPlan(target);
     if (plan.length === 0) return;
 
     const origValues = new Map();
-    for (const step of plan) {
-      origValues.set(step.name, target.getAttribute(step.name) ?? '');
-    }
+    for (const step of plan) origValues.set(step.name, target.getAttribute(step.name) ?? '');
 
     this.drag = {
-      target,
-      plan,
-      origValues,
-      startX: e.clientX,
-      startY: e.clientY,
-      pointerId: e.pointerId,
+      target, plan, origValues,
+      startX: e.clientX, startY: e.clientY, pointerId: e.pointerId,
     };
     this.host.setPointerCapture(e.pointerId);
   }
 
-  onMove(e) {
+  _onPointerMove(e) {
     if (!this.drag) return;
     const dxClient = e.clientX - this.drag.startX;
     const dyClient = e.clientY - this.drag.startY;
-    const [dx, dy] = this.clientDeltaToSvg(dxClient, dyClient);
+    const [dx, dy] = this._clientDeltaToSvg(dxClient, dyClient);
     const { target, plan, origValues } = this.drag;
 
     for (const step of plan) {
-      const type = attrTypeOf(step.name);
+      const grammar = attrTypeOf(step.name);
       const orig = origValues.get(step.name);
-      const parsed = type.parse(orig);
-      const moved = type.translate(parsed, dx, dy, step.axis);
-      target.setAttribute(step.name, type.serialise(moved));
+      const moved = grammar.translate(grammar.parse(orig), dx, dy, step.axis);
+      this.doc.setAttribute(target, step.name, grammar.serialise(moved));
     }
-
     this.refreshOutline();
   }
 
-  onUp(_e) {
+  _onPointerUp(_e) {
     if (!this.drag) return;
     try { this.host.releasePointerCapture(this.drag.pointerId); } catch {}
     this.drag = null;
   }
 
-  clientDeltaToSvg(dxClient, dyClient) {
-    const svg = this.renderer.svgRoot;
-    if (!svg) return [dxClient, dyClient];
+  _clientDeltaToSvg(dxClient, dyClient) {
+    const svg = this.doc.root;
     const rect = svg.getBoundingClientRect();
     const vbAttr = svg.getAttribute('viewBox');
     if (vbAttr) {
@@ -134,24 +120,17 @@ export class Overlay {
     return [dxClient, dyClient];
   }
 
-  select(model) {
-    this.selected = model;
-    this.refreshOutline();
-    if (this.onSelect) this.onSelect(model);
-  }
-
   refreshOutline() {
-    const target = this.selected;
-    if (!target || schemaOf(target)?.tag === 'svg') {
+    const target = this.doc.selection;
+    if (!target || target === this.doc.root || !isSvgElement(target)) {
       this.outline.hidden = true;
       return;
     }
-    const svgEl = this.renderer.svgFor(target);
-    if (!svgEl || typeof svgEl.getBoundingClientRect !== 'function') {
+    if (typeof target.getBoundingClientRect !== 'function') {
       this.outline.hidden = true;
       return;
     }
-    const bounds = svgEl.getBoundingClientRect();
+    const bounds = target.getBoundingClientRect();
     if (bounds.width === 0 && bounds.height === 0) {
       this.outline.hidden = true;
       return;
