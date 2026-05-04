@@ -1,27 +1,24 @@
+// Selection and drag overlay. Captures pointer events on a transparent
+// layer above the SVG, hit-tests, and rewrites coordinate attributes
+// through the document during a drag.
+//
+// Inputs:  pointer events; rules/queries.js + rules/grammars.js
+// Outputs: doc.selection, doc.setAttribute, outline positioning
+// Common bugs:
+//   - drag does nothing (buildDragPlan returned empty)
+//   - drag moves wrong direction (axis classification in queries.js)
+//   - outline misaligned (viewBox math in _clientDeltaToSvg)
+//
+// prev: (set at end of Phase C)  ·  next: (set at end of Phase C)
+
 import {
   isSvgElement, attributesOf, attrTypeOf, isXAxis, isYAxis,
 } from '../rules/index.js';
 
-// Selection + drag overlay. The overlay is a transparent HTML layer on
-// top of the rendered SVG; it captures pointer events, decides which
-// SVG element was hit, and — while the user drags — rewrites the
-// element's coordinate attributes so the browser re-renders it at the
-// new position on every frame.
-//
-// The lead chapter is interact.html (chapter 16 "User Interaction"),
-// which defines pointer-event dispatch, the `pointer-events` property
-// and how hit testing chooses a target. coords.html §7 is the partner
-// chapter: the screen-pixel deltas a pointer reports must be converted
-// to user-space deltas using the SVG's current viewport-to-user
-// transform, and that conversion (the viewBox mapping) is defined in
-// coords.html §7.10.
 export class Overlay {
-  // Captures references to the host (event surface), the outline box
-  // (the dashed rectangle around the selected element) and the
-  // Document. Subscribes to pointer events so the browser delivers
-  // them through the standard DOM event loop described in
-  // interact.html §16.5; the document's `selectionchange` and `change`
-  // events trigger outline refreshes when geometry shifts.
+  // Ties the overlay to a host (event surface), an outline element, and
+  // the document. The document's selection and change events are the
+  // overlay's only inward-facing inputs once construction is done.
   constructor(host, outline, doc) {
     this.host = host;
     this.outline = outline;
@@ -44,9 +41,7 @@ export class Overlay {
     doc.addEventListener('change', this._onDocChange);
   }
 
-  // Symmetric teardown — detaches every listener attached above so a
-  // disposed overlay neither keeps refs to its host nor leaks event
-  // handlers when a new document replaces the current one.
+  // Symmetric teardown of every listener constructor attaches.
   dispose() {
     this.host.removeEventListener('pointerdown', this._onDown);
     this.host.removeEventListener('pointermove', this._onMove);
@@ -57,13 +52,10 @@ export class Overlay {
     this.doc.removeEventListener('change', this._onDocChange);
   }
 
-  // Resolves the SVG element under a screen point. The overlay sits
-  // on top of the SVG so we briefly disable its hit-testing
-  // (`pointerEvents = 'none'`) and ask the browser for the topmost
-  // element via `document.elementFromPoint`. The browser implements
-  // hit testing per interact.html §16.4, including the
-  // `pointer-events` and `visibility` rules that decide whether a
-  // shape responds to the pointer.
+  // Briefly disables host pointer-events so elementFromPoint sees the
+  // SVG underneath. The browser implements hit testing per
+  // interact.html §16.4 — pointer-events and visibility decide whether
+  // a shape responds to the pointer.
   hitTest(clientX, clientY) {
     const prev = this.host.style.pointerEvents;
     this.host.style.pointerEvents = 'none';
@@ -73,13 +65,10 @@ export class Overlay {
     return target;
   }
 
-  // Decides which attributes a drag should rewrite for a given
-  // element. Walks the element's schema attribute list and asks each
-  // grammar (from grammars.js) whether it has a translate hook; for
-  // axis-aware grammars it picks `x` or `y` based on the spec's naming
-  // convention encoded in queries.js. If the element has no
-  // translatable attributes but does carry `transform`, the plan falls
-  // back to prepending a `translate(dx dy)` per coords.html §7.6.
+  // Walks the schema attributes and asks each grammar whether it is
+  // translatable. Axis-aware grammars get classified by name into the
+  // x/y bucket; elements with no translatable attributes fall back to
+  // prepending `translate(dx dy)` onto `transform` (coords.html §7.6).
   buildDragPlan(el) {
     const plan = [];
     let hasTransform = false;
@@ -99,11 +88,10 @@ export class Overlay {
     return plan;
   }
 
-  // Pointer-down: hit-test, set the document selection, and — if the
-  // hit is a drag-eligible element — capture the pointer so subsequent
-  // moves fire on the host even if the cursor leaves the SVG. Pointer
-  // capture and the implicit-capture rules are described in
-  // interact.html §16.6.
+  // Pointer-down: hit-test, set selection, capture the pointer so
+  // subsequent moves arrive even when the cursor leaves the SVG
+  // (interact.html §16.6). The original attribute values are snapshot
+  // so each move recomputes from the start, not incrementally.
   _onPointerDown(e) {
     e.preventDefault();
     const target = this.hitTest(e.clientX, e.clientY);
@@ -124,13 +112,10 @@ export class Overlay {
     this.host.setPointerCapture(e.pointerId);
   }
 
-  // Pointer-move: convert the screen delta to a user-space delta, then
-  // for each planned attribute parse → translate → serialise through
-  // its grammar and write the new string via Document.setAttribute.
-  // The browser parses the new value, re-resolves geometry per the
-  // owning element chapter (shapes.html, paths.html, text.html, ...)
-  // and repaints; the outline follows along by listening to the
-  // document's `change` event.
+  // For each planned attribute: parse the original, translate by the
+  // user-space delta, serialise back to a string, write through the
+  // document. The browser repaints because setAttribute mutates the
+  // live SVG DOM — there is no separate render call.
   _onPointerMove(e) {
     if (!this.drag) return;
     const dxClient = e.clientX - this.drag.startX;
@@ -147,24 +132,19 @@ export class Overlay {
     this.refreshOutline();
   }
 
-  // Pointer-up / cancel: release pointer capture and clear the drag
-  // state. The browser dispatches `pointercancel` whenever it
-  // forcibly takes the pointer away (e.g. tab loses focus); we treat
-  // it the same as `pointerup` per the lifecycle in interact.html
-  // §16.5.
+  // Releases pointer capture and clears the drag state.
+  // `pointercancel` is treated identically (interact.html §16.5 covers
+  // the lifecycle).
   _onPointerUp(_e) {
     if (!this.drag) return;
     try { this.host.releasePointerCapture(this.drag.pointerId); } catch {}
     this.drag = null;
   }
 
-  // Converts a client-pixel delta into a user-space delta on the root
-  // SVG. If the SVG has a `viewBox`, the conversion uses the ratio
-  // viewBox-extent / rendered-extent — exactly the inverse of the
-  // viewport-to-user mapping the browser computes per coords.html
-  // §7.10 ("preserveAspectRatio" + "viewBox"). Without a `viewBox`
-  // the SVG is in 1:1 user-units-to-pixels mode so the delta passes
-  // through unchanged.
+  // Inverts the viewport-to-user mapping: the screen-pixel delta is
+  // scaled by viewBox-extent / rendered-extent on each axis. Without a
+  // viewBox the SVG is in 1:1 user-units-to-pixels, and the delta
+  // passes through unchanged (coords.html §7.10).
   _clientDeltaToSvg(dxClient, dyClient) {
     const svg = this.doc.root;
     const rect = svg.getBoundingClientRect();
@@ -180,12 +160,10 @@ export class Overlay {
     return [dxClient, dyClient];
   }
 
-  // Repositions the dashed outline so it tracks the selection's
-  // bounding box. We use `getBoundingClientRect`, which the browser
-  // computes after applying the full ancestor CTM and viewBox
-  // transforms (coords.html §7.6 / §7.10) — so the outline ends up
-  // pixel-accurate in screen space without us having to redo the
-  // matrix math.
+  // Tracks the dashed outline against the selection's bounding box.
+  // `getBoundingClientRect` returns post-CTM, post-viewBox screen
+  // coordinates (coords.html §7.6 / §7.10), so the outline is
+  // pixel-accurate without us redoing the matrix math.
   refreshOutline() {
     const target = this.doc.selection;
     if (!target || target === this.doc.root || !isSvgElement(target)) {
