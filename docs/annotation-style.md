@@ -32,7 +32,7 @@ so all twelve resolve together.
 `src/schema.generated.js`, `src/styles.css`, `index.html`, `scripts/`,
 and `vendor/` are out of scope.
 
-## File header (~10 lines)
+## File header
 
 Fixed shape, five sections:
 
@@ -48,23 +48,42 @@ Fixed shape, five sections:
 // prev: <file>  ·  next: <file>
 ```
 
-No essay. The header ends at roughly ten lines.
+The header is a manual chapter heading: aim for ten lines, fifteen if
+the file genuinely warrants more, and prefer prose over telegraph form.
+"Inputs" and "Outputs" are each one sentence, not a list of names.
 
-## Per-block annotations (≤ 4 lines)
+## Per-block annotations
 
-Hard cap of four lines per inline comment block.
+There is no hard line cap on a block. Length should match the
+information density of the block. Some shapes:
 
-- **Easy code → notes carry architecture.** When the code is short and
-  obvious, use the comment to say *why this layer owns the call*, not
-  what the call does.
-- **Hard code → notes explain code.** When the code is intricate, the
-  comment explains what is happening; architectural framing stays
-  short or moves to the file header.
-- **When both are heavy**, the prose density rises within the four-line
-  cap. The density is the signal; the prose never announces "this is
-  hard".
+- One-line getters and mechanical helpers usually need no block at all.
+- Easy code carrying architecture talk often lands at four to seven
+  lines: the block uses the *why* of this code's existence to say
+  something about the layer.
+- Hard code carrying code-explanation often lands at five to nine
+  lines; arc-defining functions like `translatePathData` or
+  `_clientDeltaToSvg` may run longer.
+- When both are heavy the block runs longer still. The density is the
+  signal.
 
-Don't paraphrase the code. The reader has the code right there.
+The fence against essay-creep is not length but **story-first writing**.
+Each block reads as a short paragraph that could appear in a manual
+about this layer, not as a flat list of facts each starting with
+"this". Every sentence earns its lines: it introduces a fact about the
+layer, explains why this layer owns the call, names a likely failure,
+or hands off to what the browser does. Sentences that bridge, recap,
+or paraphrase the code itself are removed.
+
+Naming JavaScript functions inline is fine — and often the right way
+to ground the reader. Use it as an anchor, particularly to point
+across files (e.g. "consumed by `buildDragPlan` in view/overlay.js")
+or to name the seam between two layers. Don't name every function the
+block touches; the code is right there.
+
+A sentence that begins with *Essentially*, *In other words*,
+*It's worth noting*, *Note that*, or *This is important because* is
+essay padding. Replace it with the fact it was preparing, or remove it.
 
 ## Voice and style
 
@@ -163,10 +182,11 @@ triggering another revision cycle.
 **Mechanical checks** (grep over the Phase C diff; fix in place if the
 fix is small):
 
-- `this is hard`, `this is interesting`, `let me`, `we'll`, `I'll` —
-  telling-not-showing or first-person leaks
-- Comment blocks longer than four lines
-- File headers longer than twelve lines
+- Padding markers: `Essentially`, `In other words`, `It's worth noting`,
+  `Note that`, `This is important because`
+- Telling-not-showing: `this is hard`, `this is interesting`, `let me`,
+  `we'll`, `I'll`, first-person `I` / `we` in code comments
+- File headers longer than fifteen lines
 - Files missing the "Common bugs" section in the header
 - Missing or malformed arc anchors
 - Emoji in source
@@ -175,7 +195,13 @@ fix is small):
 not immediate revisions):
 
 - Voice drift between earliest and latest Phase C files
-- Per-block density that does not match the difficulty of the code
+- Block length that does not match the information density of the code
+  (too short for arc-defining code, too long for mechanical helpers)
+- Blocks that read as flat lists of "this X does Y" rather than as
+  short paragraphs
+- Function names cited so often that the prose becomes a code listing,
+  or files where one well-placed function-name anchor would have
+  grounded the reader and was missed
 - SVG 1.1 / browser divergences without an SVG 2 aside where one would
   teach something
 

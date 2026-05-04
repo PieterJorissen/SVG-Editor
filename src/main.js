@@ -1,11 +1,13 @@
-// Entrypoint. Wires the layers together; owns no domain logic.
+// Entrypoint. Wires the layers together and turns user gestures
+// (toolbar clicks, file picker, key presses) into method calls on the
+// modules below. Owns no domain logic of its own.
 //
 // Inputs:  DOM elements from index.html; toolbar/keyboard/file events
-// Outputs: live editor — Document, Canvas, Overlay, Tree, Attr panels
+// Outputs: a live editor — Document, Canvas, Overlay, Tree, Attr panels
 // Common bugs:
 //   - editor never appears (element id drift vs index.html)
 //   - insert dropdown empty (rules/queries.js content-model filter)
-//   - delete leaves dead selection (fallback logic below)
+//   - delete leaves dead selection (fallback logic in deleteSelected)
 //   - file load doesn't replace state (bootstrap dispose order)
 //
 // prev: (set at end of Phase C)  ·  next: (set at end of Phase C)
@@ -32,9 +34,17 @@ let overlay;
 let tree;
 let attrs;
 
-// Disposes the previous wiring and rebuilds against a new Document.
-// Order matters: panels go before the Document, because their dispose
-// hooks unsubscribe from the Document's events.
+// Disposes the previous wiring (so observers, listeners, and pointer
+// captures do not leak across documents) and instantiates fresh
+// Canvas, Overlay, TreePanel, and AttrPanel against the new Document.
+// Order matters: panels go before the Document, because their
+// `dispose` hooks unsubscribe from Document events. Selection is set
+// to the root `<svg>` after construction; struct.html §5 "Document
+// Structure" treats the outermost `<svg>` as a regular structural
+// element with attributes and children, so it is a valid initial
+// selection target. struct.html is the lead chapter for everything
+// this file does: `<svg>`, `<g>`, `<defs>`, `<use>` and the way they
+// nest are the structural model the editor is wiring up.
 function bootstrap(nextDoc) {
   if (overlay) overlay.dispose();
   if (canvas) canvas.dispose();
@@ -53,9 +63,13 @@ function bootstrap(nextDoc) {
   refreshInsertOptions();
 }
 
-// Repopulates the insert dropdown from elementsAcceptedBy. The browser
-// does not enforce content models at runtime; this filter is purely an
-// editor affordance to keep schema-invalid trees out of the document.
+// Repopulates the insert-element dropdown based on what the spec
+// allows as a child of the current insertion target. The list comes
+// from `elementsAcceptedBy` in rules/queries.js, which evaluates the
+// DTD content model from svgdtd.html. The browser does not enforce
+// content models at runtime — it will happily render an illegal
+// child — so this filtering is purely an editor affordance to keep
+// users from producing schema-invalid trees.
 function refreshInsertOptions() {
   const target = pickInsertTarget(doc.selection || doc.root);
   const tags = elementsAcceptedBy(target.localName);
@@ -70,9 +84,13 @@ function refreshInsertOptions() {
   if (tags.includes(previous)) insertSelect.value = previous;
 }
 
-// Walks ancestors looking for the nearest element whose content model
-// admits `childTag`, falling back to the document root. Without a
-// `childTag` the function just returns the current selection.
+// Walks the ancestor chain looking for the nearest element whose
+// content model accepts `childTag`. If none of the ancestors do, it
+// falls back to the document root — a sensible default since the
+// root `<svg>` accepts the structure and shape categories. Without a
+// `childTag` the function just returns the current selection
+// unchanged. Same content-model source as `refreshInsertOptions`
+// above (svgdtd.html).
 function pickInsertTarget(start, childTag = null) {
   let cursor = start || doc.root;
   if (!childTag) return cursor;
@@ -82,9 +100,15 @@ function pickInsertTarget(start, childTag = null) {
   return cursor && cursor.namespaceURI === SVG_NS ? cursor : doc.root;
 }
 
-// Builds the starter document the editor opens with. The root carries
-// `width`/`height` and a matching `viewBox`, which the browser uses to
-// establish the outermost viewport (coords.html §7.2).
+// Builds the starter document the editor opens with. The root `<svg>`
+// declares its viewport via `width`/`height` and a matching
+// `viewBox` — the establishing-viewport rule from coords.html §7.2 —
+// and the children are canonical examples of each shape category
+// from shapes.html §9 plus a `<text>` from text.html §10. The result
+// is itself a Conforming SVG Document per conform.html §2.3.1: the
+// SVG namespace is set, and only schema-declared elements and
+// attributes are used. Once Canvas mounts the live SVG, the browser
+// renders it according to those chapters.
 function defaultDocument() {
   const svg = window.document.createElementNS(SVG_NS, 'svg');
   svg.setAttribute('width', '800');
@@ -108,9 +132,13 @@ function defaultDocument() {
 
 bootstrap(defaultDocument());
 
-// Toolbar dispatcher. Each branch turns one user gesture into one
-// method call; insert + delete go through Document so the
-// MutationObserver fires and the panels refresh.
+// Toolbar dispatcher. Click events on the toolbar surface — load,
+// export, insert, delete — are funnelled here. The button-vs-other
+// guard keeps the listener from firing on layout chrome. Each branch
+// turns one user gesture into one method call: file-io for load and
+// export, the Document's tree mutators for insert and delete. Insert
+// also runs through `pickInsertTarget` so a click on a leaf shape
+// still produces a schema-valid placement.
 window.document.querySelector('#toolbar').addEventListener('click', async (e) => {
   const button = e.target;
   if (!(button instanceof HTMLButtonElement)) return;
@@ -133,9 +161,11 @@ window.document.querySelector('#toolbar').addEventListener('click', async (e) =>
   }
 });
 
-// Removes the selection and picks a sensible fallback (previous
-// sibling, next sibling, or parent). The browser handles the unlink
-// via `el.remove()`; the Document's MutationObserver handles the rest.
+// Removes the current selection from the document and picks a
+// sensible fallback (previous sibling, next sibling, or parent). The
+// browser handles the actual unlinking via `el.remove()`; the
+// MutationObserver inside Document then fires a `change` event that
+// repaints the tree and attribute panels.
 function deleteSelected() {
   const sel = doc.selection;
   if (!sel || sel === doc.root) return;
@@ -145,7 +175,11 @@ function deleteSelected() {
   doc.selection = fallback && fallback.namespaceURI === SVG_NS ? fallback : doc.root;
 }
 
-// File picker → loadSvgFile → bootstrap. The input is reset so picking
+// File picker → `loadSvgFile` → `bootstrap`. The hidden input is
+// triggered from the toolbar handler above; when the user picks a
+// file, it is handed to the loader (which uses DOMParser per
+// conform.html's parsing requirements) and the editor is rebuilt
+// around the resulting Document. The input value is reset so picking
 // the same file twice still triggers a `change` event.
 fileInput.addEventListener('change', async () => {
   const file = fileInput.files?.[0];
@@ -160,9 +194,12 @@ fileInput.addEventListener('change', async () => {
   }
 });
 
-// Keyboard shortcuts. The in-field guard keeps native typing alive
-// inside `<input>`, `<textarea>`, and `<select>`; outside those,
-// Delete/Backspace remove the selection and Escape clears it.
+// Keyboard shortcuts. `Delete`/`Backspace` removes the selection,
+// `Escape` clears it back to the root. The in-field guard keeps
+// native typing alive inside `<input>`, `<textarea>`, and `<select>`
+// — those should retain their built-in key handling — so the
+// shortcut is only active when focus is outside any form control.
+// Browser-level key dispatch is described in interact.html §16.5.
 window.document.addEventListener('keydown', (e) => {
   const inField = window.document.activeElement
     && ['INPUT', 'TEXTAREA', 'SELECT'].includes(window.document.activeElement.tagName);
