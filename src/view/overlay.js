@@ -84,10 +84,10 @@ export class Overlay {
   }
 
   // Decides which attributes a drag should rewrite for a given
-  // element. Walks the schema's attribute list and asks each
-  // grammar whether it has a translate hook; for axis-aware grammars
-  // it picks `x` or `y` based on the spec's naming convention encoded
-  // in rules/queries.js (`x`, `cx`, `dx`, `fx`, `refX` → x-axis;
+  // element. Walks the schema's attribute list and asks each grammar
+  // whether it has a translate hook; for axis-aware grammars,
+  // `isXAxis` and `isYAxis` from rules/queries.js classify the
+  // attribute by name (`x`, `cx`, `dx`, `fx`, `refX` → x-axis;
   // y-counterparts → y-axis). If the element has no translatable
   // coordinate attributes but does carry `transform`, the plan falls
   // back to prepending a `translate(dx dy)` per coords.html §7.6 — so
@@ -138,13 +138,13 @@ export class Overlay {
     this.host.setPointerCapture(e.pointerId);
   }
 
-  // Pointer-move: convert the screen delta into a user-space delta,
-  // then for each attribute in the drag plan parse the original,
-  // translate by the delta through the grammar from
-  // rules/grammars.js, serialise back, and write through the document.
-  // The browser repaints because `setAttribute` mutated the live SVG
-  // DOM — there is no separate render call. Geometry chapters
-  // (shapes.html, paths.html, text.html) handle the re-resolution.
+  // Pointer-move: convert the screen delta into a user-space delta
+  // through `_clientDeltaToSvg`, then for each attribute in the drag
+  // plan parse the original, call `grammar.translate` with the
+  // delta, serialise back, and write through `doc.setAttribute`. The
+  // browser repaints because the write mutated the live SVG DOM —
+  // there is no separate render call. Geometry chapters (shapes.html,
+  // paths.html, text.html) handle the re-resolution.
   _onPointerMove(e) {
     if (!this.drag) return;
     const dxClient = e.clientX - this.drag.startX;

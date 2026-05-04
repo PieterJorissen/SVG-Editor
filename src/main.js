@@ -164,8 +164,9 @@ window.document.querySelector('#toolbar').addEventListener('click', async (e) =>
 // Removes the current selection from the document and picks a
 // sensible fallback (previous sibling, next sibling, or parent). The
 // browser handles the actual unlinking via `el.remove()`; the
-// MutationObserver inside Document then fires a `change` event that
-// repaints the tree and attribute panels.
+// MutationObserver inside Document fires `_onMutations`, which
+// rebroadcasts as a `change` event that repaints the tree and
+// attribute panels.
 function deleteSelected() {
   const sel = doc.selection;
   if (!sel || sel === doc.root) return;
@@ -176,11 +177,11 @@ function deleteSelected() {
 }
 
 // File picker → `loadSvgFile` → `bootstrap`. The hidden input is
-// triggered from the toolbar handler above; when the user picks a
-// file, it is handed to the loader (which uses DOMParser per
-// conform.html's parsing requirements) and the editor is rebuilt
-// around the resulting Document. The input value is reset so picking
-// the same file twice still triggers a `change` event.
+// triggered from the `'load'` branch of the toolbar handler above;
+// when the user picks a file, `loadSvgFile` parses it via DOMParser
+// per conform.html's parsing requirements, and `bootstrap` rebuilds
+// the editor around the resulting Document. The input value is reset
+// so picking the same file twice still triggers a `change` event.
 fileInput.addEventListener('change', async () => {
   const file = fileInput.files?.[0];
   if (!file) return;

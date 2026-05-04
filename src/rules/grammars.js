@@ -122,7 +122,7 @@ const OPACITY = {
 // <list-of-points>; the browser parses it into an SVGPointList and
 // strokes or fills the resulting polyline. The translate hook shifts
 // every pair by (dx, dy), since both axes always move together for a
-// list — the axis-aware mechanism only applies to scalar coordinates.
+// list — the `axis` argument only applies to scalar coordinates.
 const POINTS = {
   parse: (s) => {
     if (!s) return [];
@@ -141,8 +141,8 @@ const POINTS = {
 // relative commands alone — they are deltas from the previous point
 // and translating them would move the path twice. The one subtlety is
 // the very first lowercase `m`: paths.html §8.3.2 says it is treated
-// as absolute, and the closing block at the end of this function
-// fixes that case up. The browser parses the same grammar (SVG 2
+// as absolute, and the trailing `absoluteFirstM` block fixes the case
+// up after the main loop. The browser parses the same grammar (SVG 2
 // deprecated SVGPathSegList, so direct DOM access to segments is gone
 // in modern engines) and rasterises each command — line, curve,
 // arc — per the per-command rules in paths.html §8.3.
