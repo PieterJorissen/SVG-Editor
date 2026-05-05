@@ -38,10 +38,10 @@ const STRING = {
 };
 
 // A plain IEEE-754 float, draggable on either axis. The translate
-// hook is the small but architecturally important seam: it lets
-// `buildDragPlan` in view/overlay.js shift this attribute during a
-// drag without ever knowing it is dealing with a number — the
-// VALUE_TYPE name on the schema row is enough.
+// hook is the bridge to view/overlay.js — it lets `buildDragPlan`
+// shift this attribute during a drag without ever knowing it is
+// dealing with a number, because the VALUE_TYPE name on the schema
+// row is enough to look up the right grammar.
 const NUMBER = {
   parse: (s) => NUM(s, 0),
   serialise: (v) => String(v),
@@ -63,7 +63,7 @@ const INTEGER = {
   translate: (v, dx, dy, axis) => Math.trunc(v + (axis === 'x' ? dx : axis === 'y' ? dy : 0)),
 };
 
-// A number paired with an optional CSS unit. Number and unit are kept
+// A number paired with an optional CSS unit. We keep number and unit
 // separate so a drag adds to the number without disturbing the suffix:
 // dragging "10mm" by 5 produces "15mm", not "15". types.html §4.5.11
 // defines <length>; the browser resolves the unit (px, pt, em, %, ...)
@@ -102,9 +102,9 @@ const COLOR = {
 
 // A paint specification: either a colour, or a `url(#id)` pointing at
 // a gradient or pattern, optionally followed by a fallback colour.
-// Stored verbatim. The browser dereferences the URL at render time,
-// walks the paint server (gradient stops, pattern children), and
-// produces the pixels — types.html §4.5.13 plus painting.html.
+// We store it verbatim. The browser dereferences the URL at render
+// time, walks the paint server (gradient stops, pattern children),
+// and produces the pixels — types.html §4.5.13 plus painting.html.
 const PAINT = COLOR;
 
 // A scalar opacity, clamped into [0,1]. Out-of-range values are
@@ -245,8 +245,8 @@ const ENUMERATION = {
 };
 
 // Registry: VALUE_TYPE name (as emitted by the schema generator)
-// mapped to grammar. This is the seam that lets view/overlay.js drag
-// any attribute without knowing its type — the schema yields a type
+// mapped to grammar. This is what lets view/overlay.js drag any
+// attribute without knowing its type — the schema yields a type
 // name, that name indexes into this table, and the resulting grammar
 // is enough to parse, translate, and write the value back. The
 // browser keeps an equivalent dispatch table inside its attribute

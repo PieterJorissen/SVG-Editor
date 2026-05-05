@@ -45,8 +45,11 @@ Fixed five-section shape, ten-line target, fifteen-line hard limit:
 // prev: <file>  ·  next: <file>
 ```
 
-Inputs and Outputs are sentences, not lists of names. Common bugs are
-the breadcrumbs that point a troubleshooter to the right block below.
+Inputs and Outputs are sentences, not lists of names. The role line is
+a complete sentence with subject and verb — typically `<file>.js is
+<role>` or `<file>.js does <action>` — not a noun fragment. Common
+bugs are the breadcrumbs that point a troubleshooter to the right
+block below.
 
 ## Writing prose
 
@@ -107,6 +110,16 @@ Examples:
 Naming a function and stating its role in one sentence is not
 paraphrasing — it is the precise word English needs.
 
+### Plain English over jargon
+
+Programming-jargon shorthand (`seam`, `domain logic`, `scaffold`,
+`decorator`, `cascade`, `marshal`, `bridge`, `fold`) carries hidden
+weight for a reader without prior JavaScript or SVG knowledge. Reach
+for plain words when they work: *where two layers meet* instead of
+*seam*, *editor-specific work* instead of *domain logic*. Keep a
+specialised term only when it earns its weight by teaching a concept
+the reader will need to know to find the bug.
+
 ### Browser-truth, with SVG 2 asides
 
 When SVG 1.1 differs from current browser behaviour, describe the
@@ -134,7 +147,11 @@ this is hard         this is interesting
 let me               we'll                    I'll
 ```
 
-First-person `I` / `we` in code comments is also forbidden.
+First-person `I` is forbidden in code comments. `We` is fine for
+design-intent statements (*We keep number and unit separate so...*,
+*We store the value verbatim*); the markers above still rule out
+`we'll`, `let me`, `I'll`, which announce structure rather than
+state intent.
 
 ### Voice
 

@@ -1,6 +1,7 @@
-// Entrypoint. Wires the layers together and turns user gestures
-// (toolbar clicks, file picker, key presses) into method calls on the
-// modules below. Owns no domain logic of its own.
+// main.js is the editor's entrypoint. It wires the layers together
+// and turns user gestures (toolbar clicks, file picker, key presses)
+// into method calls on the modules below; it does not parse SVG,
+// edit attributes, or render anything itself.
 //
 // Inputs:  DOM elements from index.html; toolbar/keyboard/file events
 // Outputs: a live editor — Document, Canvas, Overlay, Tree, Attr panels
@@ -84,7 +85,7 @@ function refreshInsertOptions() {
   if (tags.includes(previous)) insertSelect.value = previous;
 }
 
-// Walks the ancestor chain looking for the nearest element whose
+// Walks up the ancestor chain looking for the nearest element whose
 // content model accepts `childTag`. If none of the ancestors do, it
 // falls back to the document root — a sensible default since the
 // root `<svg>` accepts the structure and shape categories. Without a
@@ -180,8 +181,13 @@ function deleteSelected() {
 // triggered from the `'load'` branch of the toolbar handler above;
 // when the user picks a file, `loadSvgFile` parses it via DOMParser
 // per conform.html's parsing requirements, and `bootstrap` rebuilds
-// the editor around the resulting Document. The input value is reset
-// so picking the same file twice still triggers a `change` event.
+// the editor around the resulting Document. If parsing fails the
+// catch surfaces the error message via `alert` and the editor stays
+// on the previous Document, so there is no half-loaded state to
+// recover from. The input value is then reset to empty: the browser
+// only fires `change` when the new selection differs from the old,
+// so without the reset, picking the same file twice would silently
+// no-op.
 fileInput.addEventListener('change', async () => {
   const file = fileInput.files?.[0];
   if (!file) return;
@@ -196,7 +202,7 @@ fileInput.addEventListener('change', async () => {
 });
 
 // Keyboard shortcuts. `Delete`/`Backspace` removes the selection,
-// `Escape` clears it back to the root. The in-field guard keeps
+// `Escape` clears it back to the root. The `inField` guard keeps
 // native typing alive inside `<input>`, `<textarea>`, and `<select>`
 // — those should retain their built-in key handling — so the
 // shortcut is only active when focus is outside any form control.
