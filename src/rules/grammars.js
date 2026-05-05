@@ -7,7 +7,7 @@
 //   - asymmetric parse/serialise round-trip
 //   - units lost after a drag
 //
-// prev: (set at end of Phase C)  ·  next: (set at end of Phase C)
+// prev: src/widgets/index.js  ·  next: src/rules/queries.js
 
 // Float parser with a finite-number guard. Used as the leaf of every
 // numeric grammar in this file because every numeric leaf in chapter 4

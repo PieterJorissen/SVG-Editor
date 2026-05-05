@@ -11,7 +11,7 @@
 //   - delete leaves dead selection (fallback logic in deleteSelected)
 //   - file load doesn't replace state (bootstrap dispose order)
 //
-// prev: (set at end of Phase C)  ·  next: (set at end of Phase C)
+// prev: (start)  ·  next: src/io/file-io.js
 
 import { SVG_NS, canHaveChild, elementsAcceptedBy } from './rules/index.js';
 import { Document as EditorDocument } from './doc/document.js';

@@ -1,27 +1,36 @@
+// attr-panel.js renders the editable attribute list for the
+// currently selected element. One row per attribute the schema
+// declares for the element, with a widget chosen by VALUE_TYPE.
+//
+// Inputs:  the Document (selection + change); rules/queries.js for
+//          schema; widgets/index.js for the right control type
+// Outputs: rows of label + widget, plus a textarea for text-bearing
+//          elements
+// Common bugs:
+//   - row missing for a known attribute (rules/queries.js schema row)
+//   - widget shows the wrong control (widgets/index.js dispatch by type)
+//   - panel doesn't refresh after a drag (change-event subscription)
+//
+// prev: src/view/overlay.js  ·  next: src/view/tree-panel.js
+
 import {
   schemaFor, displayTagFor, attributesOf, attrInfoOf, defaultOf,
 } from '../rules/index.js';
 import { getWidget } from '../widgets/index.js';
 
-// Per-element attribute editor. Renders one row per attribute the
-// schema declares for the current selection, with a widget chosen by
-// VALUE_TYPE. Editing a row writes through Document.setAttribute, the
-// browser re-parses the attribute and re-renders, and the panel reacts
-// to the resulting change event.
-//
-// The lead chapter is attindex.html (Attribute Index) — that is the
-// spec's master list of every attribute, its value type, default, and
-// whether it is animatable. types.html §4 supplies the value-type
-// definitions the widget factories edit. Note that several SVG
-// "attributes" are also CSS presentation properties (styling.html §6.4
-// covers the dual-surface design); the panel only edits the attribute
-// surface, but the browser will read whichever wins per the cascade.
 export class AttrPanel {
-  // Captures the host (where rows go) and the Document, then subscribes
-  // to selection changes (for when the user picks a different element)
-  // and to attribute changes that target the current selection (so an
-  // external mutation, like a drag in the overlay, refreshes the
-  // displayed values).
+  // Captures the host (where rows go) and the Document, then
+  // subscribes to selection changes (for when the user picks a
+  // different element) and to attribute changes that touch the
+  // current selection (so an external mutation, like a drag from
+  // view/overlay.js, refreshes the displayed values). attindex.html
+  // is the master list of attributes and types behind the schema
+  // rows; types.html §4 supplies the value-type definitions the
+  // widgets edit. Several SVG attributes can also be set as CSS
+  // properties (styling.html §6.4 covers the dual surface); the
+  // panel only edits the attribute side, but the browser will use
+  // whichever value wins once CSS rules and inline styles are
+  // resolved.
   constructor(host, doc) {
     this.host = host;
     this.doc = doc;
@@ -41,23 +50,35 @@ export class AttrPanel {
     this._render();
   }
 
-  // Coalesces multiple events into one render per microtask. Same
-  // motivation as in tree-panel.js: a single drag may rewrite several
-  // attributes in quick succession, and the browser already batches
-  // mutation observer notifications within a microtask.
+  // Coalesces selection and change events into one render per
+  // microtask. The browser's MutationObserver already batches DOM
+  // mutations within a microtask; lining up with that batching means
+  // a single drag that rewrites several attributes still produces one
+  // panel repaint, not several.
   _schedule() {
     if (this.scheduled) return;
     this.scheduled = true;
     queueMicrotask(() => { this.scheduled = false; this._render(); });
   }
 
-  // Walks the schema row for the selected element (attindex.html
-  // expanded via attributesOf, so attribute groups like %coreAttrs and
-  // %presentationAttrs are flattened in declaration order), then
-  // instantiates the right widget for each entry. The widget is given
-  // the live value from `getAttribute` and a callback that writes the
-  // new string back through the Document — the browser then parses,
-  // re-resolves geometry/paint per the relevant chapter and repaints.
+  // REVIEW(annotation): block is 15 lines (vs. 9-line soft guidance);
+  // covers two distinct concerns. Split into separate blocks above
+  // attribute rows and the text-content row?
+  // Walks the schema row for the selected element via `attributesOf`
+  // from rules/queries.js — that flattens attribute groups like
+  // %coreAttrs and %presentationAttrs into a single ordered list — and
+  // instantiates the right widget for each entry through `getWidget`
+  // from widgets/index.js. The widget is given the live value from
+  // `el.getAttribute` and a callback that writes the new string back
+  // through `doc.setAttribute`; the browser then parses, re-resolves
+  // geometry or paint per the relevant chapter, and repaints.
+  // `defaultOf` from rules/queries.js fills the placeholder so an
+  // empty input shows the spec default rather than blank.
+  //
+  // Elements whose schema marks them as text-bearing get a final
+  // textarea bound to `el.textContent`. text.html §10 covers the
+  // layout for `<text>`; struct.html §5.4 / §5.5 say that `<title>`
+  // and `<desc>` are non-rendered metadata.
   _render() {
     const el = this.doc.selection;
     if (!el) {
@@ -96,12 +117,6 @@ export class AttrPanel {
       this.host.appendChild(row);
     }
 
-    // Extra row for elements whose schema marks them as text-bearing
-    // (`<text>`, `<title>`, `<desc>`, `<script>`). The browser stores
-    // the text as child Text nodes; layout for `<text>` follows
-    // text.html §10, while `<title>` and `<desc>` are non-rendered
-    // metadata per struct.html §5.4 / §5.5. We surface a single
-    // textarea bound to `el.textContent`.
     if (schemaFor(el.localName)?.contentText) {
       const row = window.document.createElement('div');
       row.className = 'row';
@@ -117,9 +132,9 @@ export class AttrPanel {
     }
   }
 
-  // Detaches both subscriptions when the panel is replaced (e.g. on
-  // file load) so it does not keep reacting to events on a document
-  // that is no longer mounted.
+  // Detaches both subscriptions when the panel is replaced — for
+  // example on file load, when `bootstrap` in src/main.js spins up a
+  // fresh AttrPanel against a new Document.
   dispose() {
     this.doc.removeEventListener('selectionchange', this._onSelectionChange);
     this.doc.removeEventListener('change', this._onChange);

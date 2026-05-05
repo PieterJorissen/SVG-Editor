@@ -1,26 +1,32 @@
+// tree-panel.js renders a read-only mirror of the SVG document tree
+// in the side panel and lets the user click a row to select that
+// element. The tree mirrors the structural model from struct.html
+// chapter 5; we walk the live `el.children` rather than maintaining
+// our own graph.
+//
+// Inputs:  the Document (selection + change); rules/queries.js for
+//          element-name casing and per-element category
+// Outputs: a nested HTML <ul> with one row per SVG element
+// Common bugs:
+//   - tag shown in wrong case (eltindex.html canonical name lookup)
+//   - tree doesn't refresh after a delete (change subscription)
+//   - clicking a row doesn't select (data-mid mapping in `_render`)
+//
+// prev: src/view/attr-panel.js  ·  next: src/doc/document.js
+
 import { isSvgElement, schemaFor, displayTagFor } from '../rules/index.js';
 
-// Read-only mirror of the SVG document tree, rendered as a nested HTML
-// list in the side panel. Each row shows the canonical element tag name
-// (case preserved per eltindex.html — "feGaussianBlur", not
-// "fegaussianblur") plus a short per-element summary. Clicking a row
-// selects the corresponding SVG element via the Document.
-//
-// The tree mirrors the structural model defined in struct.html chapter
-// 5: every SVG element parents a sub-tree of children that the browser
-// already exposes as a live DOM tree. We do not maintain our own
-// graph; we simply walk `el.children` whenever the document changes.
-
-// One-line summary of an element's most distinctive attribute. Picks
-// per-category fields:
-//   - shapes (rect / circle / ellipse / polyline) get geometry hints
-//     from the value-bearing attribute the spec gives that shape — see
-//     shapes.html §9 for the per-shape attribute lists;
-//   - gradients get their stop count from pservers.html §13 (a
-//     gradient's children are <stop> elements);
-//   - text-bearing elements show their literal text content.
-// The browser already exposes all this via the live attributes — we are
-// only choosing which one to surface.
+// One-line summary appended next to each row so the tree shows more
+// than just tag names. The value picked depends on the element's
+// schema category:
+//   - text-bearing elements show the first 16 characters of their
+//     literal text content;
+//   - shapes show their primary geometry attribute (width×height for
+//     rects, `r=` for circles, `points` count for polylines) per
+//     shapes.html §9;
+//   - gradients show their `<stop>` count per pservers.html §13.
+// All the underlying values are already exposed by the live DOM;
+// this function only chooses which one to surface.
 function meta(el) {
   const schema = schemaFor(el.localName);
   if (!schema) return '';
@@ -54,12 +60,12 @@ function meta(el) {
 }
 
 export class TreePanel {
-  // Captures the host (where the list goes) and the Document, hooks up
-  // the change subscription, and binds a single click handler that
-  // walks up to the nearest row label. The click delegates to
-  // `doc.selection`, which fires `selectionchange` for every panel
-  // that cares — including this one, which then re-renders to flip
-  // the highlight.
+  // Captures the host (where the list goes) and the Document, hooks
+  // up the change subscription, and binds a single click delegate
+  // that walks up to the nearest row label and resolves it to an
+  // element via `idMap`. Setting `doc.selection` fires
+  // `selectionchange`, which `_schedule` uses to re-render with the
+  // new highlight.
   constructor(host, doc) {
     this.host = host;
     this.doc = doc;
@@ -82,10 +88,10 @@ export class TreePanel {
   }
 
   // Coalesces multiple change/selection events into one render per
-  // microtask. The browser's MutationObserver already batches DOM
-  // mutations within a microtask; this just makes sure that when
-  // several attributes change in quick succession (for example during
-  // a drag) we still only repaint the tree once per frame.
+  // microtask. Same motivation as in attr-panel.js: a single drag may
+  // rewrite several attributes in quick succession, and the browser
+  // already batches mutation observer notifications within a
+  // microtask.
   _schedule() {
     if (this.scheduled) return;
     this.scheduled = true;
@@ -93,11 +99,14 @@ export class TreePanel {
   }
 
   // Walks the live SVG DOM under the document root and emits a
-  // matching nested `<ul>`. Each row gets a short numeric id stored on
-  // the label via `data-mid`; the click handler maps that back to the
-  // element in `this.idMap`. We rely entirely on the browser's
-  // `el.children` and `el.localName` — the structural relationships
-  // defined in struct.html §5 are already materialised in the DOM.
+  // matching nested `<ul>`. Each row gets a numeric id stored on its
+  // label via `data-mid`; the click handler maps that id back through
+  // `this.idMap` to the actual SVG element. We rely entirely on the
+  // browser's `el.children` and `el.localName` — the structural
+  // relationships defined in struct.html §5 are already materialised
+  // in the DOM, so the tree never holds state beyond the id map.
+  // `displayTagFor` from rules/queries.js gives the canonical
+  // case-preserved name (`feGaussianBlur`, not `fegaussianblur`).
   _render() {
     this.idMap = new Map();
     let n = 0;
