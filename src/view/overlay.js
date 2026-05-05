@@ -12,7 +12,7 @@
 //   - drag moves wrong direction (axis classification in queries.js)
 //   - outline misaligned (viewBox math in _clientDeltaToSvg)
 //
-// prev: (set at end of Phase C)  ·  next: (set at end of Phase C)
+// prev: src/view/canvas.js  ·  next: src/view/attr-panel.js
 
 import {
   isSvgElement, attributesOf, attrTypeOf, isXAxis, isYAxis,
