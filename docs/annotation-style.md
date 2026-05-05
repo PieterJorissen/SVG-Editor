@@ -1,20 +1,20 @@
 # Annotation style guide
 
-This file is the contract for the spec-annotation rewrite pass on `src/`.
-The agent reads it at file boundaries during the independent Phase C
-run. Revisions to the style happen here, not in chat.
+This file is the contract for the spec-annotation pass on `src/`. It
+lives on disk so it survives conversation compression. Revisions to
+the style happen here, not in chat. The agent re-reads this file at
+file boundaries during Phase C; sections at the top bear the heaviest
+operational load.
 
 ## Reader
 
-The annotations are written for someone with little prior JavaScript
-and little prior SVG knowledge, who is in the codebase to find a bug.
-One or two lookups per file are acceptable as long as the arc keeps the
-reader oriented most of the time.
+The annotations target someone with little prior JavaScript and little
+prior SVG knowledge, in the codebase to find a bug. One or two lookups
+per file are acceptable as long as the arc keeps the reader oriented.
 
 ## Arc (reading order)
 
-User-journey order. Anchors are written last, at the end of Phase C,
-so all twelve resolve together.
+User-journey order. Anchors are written last, at the end of Phase C.
 
 1. `src/main.js` — entrypoint
 2. `src/io/file-io.js` — load and export
@@ -29,12 +29,9 @@ so all twelve resolve together.
 11. `src/rules/queries.js` — schema lookups
 12. `src/rules/index.js` — barrel
 
-`src/schema.generated.js`, `src/styles.css`, `index.html`, `scripts/`,
-and `vendor/` are out of scope.
+## File header
 
-## File header (~10 lines)
-
-Fixed shape, five sections:
+Fixed five-section shape, ten-line target, fifteen-line hard limit:
 
 ```
 // <role: one-line statement of what this file is>
@@ -48,44 +45,135 @@ Fixed shape, five sections:
 // prev: <file>  ·  next: <file>
 ```
 
-No essay. The header ends at roughly ten lines.
+Inputs and Outputs are sentences, not lists of names. The role line is
+a complete sentence with subject and verb — typically `<file>.js is
+<role>` or `<file>.js does <action>` — not a noun fragment. Common
+bugs are the breadcrumbs that point a troubleshooter to the right
+block below.
 
-## Per-block annotations (≤ 4 lines)
+## Writing prose
 
-Hard cap of four lines per inline comment block.
+### Length and density
 
-- **Easy code → notes carry architecture.** When the code is short and
-  obvious, use the comment to say *why this layer owns the call*, not
-  what the call does.
-- **Hard code → notes explain code.** When the code is intricate, the
-  comment explains what is happening; architectural framing stays
-  short or moves to the file header.
-- **When both are heavy**, the prose density rises within the four-line
-  cap. The density is the signal; the prose never announces "this is
-  hard".
+There is no hard line cap on a per-block comment. Length matches
+information density:
 
-Don't paraphrase the code. The reader has the code right there.
+- One-line getters and mechanical helpers usually need no block.
+- Easy code carrying architecture talk lands at four to seven lines.
+- Hard code carrying code-explanation lands at five to nine lines;
+  arc-defining functions can run longer.
 
-## Voice and style
+The density is the signal — never announce difficulty.
+
+### Story-first
+
+Each block reads as a short paragraph that could appear in a manual
+chapter, not as a flat list of facts each starting with "this". Every
+sentence earns its lines: it introduces a fact about the layer,
+explains why this layer owns the call, names a likely failure, or
+hands off to what the browser does. Sentences that bridge, recap, or
+rewrite a function body in English are removed.
+
+Example shape:
+
+```
+// Bad — flat list:
+//   This converts the delta to user space. This uses viewBox math.
+//   This is needed because the browser scales the SVG.
+//
+// Good — paragraph:
+//   Converts a client-pixel delta into a user-space delta. The
+//   conversion uses viewBox-extent over rendered-extent on each
+//   axis — the inverse of the browser's viewport-to-user mapping
+//   in coords.html §7.10.
+```
+
+### Function-naming
+
+Naming JavaScript functions inline is encouraged, not merely allowed.
+Use a function name whenever the natural sentence reaches for it as
+subject or object. Code is meaning-dense and the names *are* the
+precise words English would otherwise have to invent. The fence is
+taste: when every other sentence is naming a function, the prose has
+slid into a code listing; otherwise let names anchor the paragraph.
+
+Examples:
+
+```
+// Reach for the symbol when the sentence wants it:
+//   the trailing `absoluteFirstM` check fixes the case up
+//   `Document._onMutations` rebroadcasts the change
+//   consumed by `buildDragPlan` in view/overlay.js
+//   translate by the delta through `grammar.translate`
+```
+
+Naming a function and stating its role in one sentence is not
+paraphrasing — it is the precise word English needs.
+
+### Plain English over jargon
+
+Programming-jargon shorthand (`seam`, `domain logic`, `scaffold`,
+`decorator`, `cascade`, `marshal`, `bridge`, `fold`) carries hidden
+weight for a reader without prior JavaScript or SVG knowledge. Reach
+for plain words when they work: *where two layers meet* instead of
+*seam*, *editor-specific work* instead of *domain logic*. Keep a
+specialised term only when it earns its weight by teaching a concept
+the reader will need to know to find the bug.
+
+### Browser-truth, with SVG 2 asides
+
+When SVG 1.1 differs from current browser behaviour, describe the
+browser, then add a short aside when it teaches something. The
+codebase will move to SVG 2 documentation later, so divergences are
+educational rather than authoritative.
+
+Example:
+
+```
+// the browser parses the same grammar (SVG 2 deprecated
+// SVGPathSegList, so direct DOM access to segments is gone in
+// modern engines) and rasterises each command per paths.html §8.3
+```
+
+### Padding fence
+
+These markers are essay-creep tells. Remove the sentence or replace it
+with the fact it was preparing.
+
+```
+Essentially          In other words           It's worth noting
+Note that            This is important because
+this is hard         this is interesting
+let me               we'll                    I'll
+```
+
+First-person `I` is forbidden in code comments. `We` is fine for
+design-intent statements (*We keep number and unit separate so...*,
+*We store the value verbatim*); the markers above still rule out
+`we'll`, `let me`, `I'll`, which announce structure rather than
+state intent.
+
+### Voice
 
 - Third person ("the editor", "the browser", "this layer"). Second
   person ("you") only in the file header, sparingly.
-- Sentences over paragraphs.
-- No emoji, no first person.
-- Cite SVG vendor files inline by filename and section. Example:
-  "the browser parses the same grammar as `paths.html` §8.3".
-- **Browser-truth with SVG 2 educational asides.** When SVG 1.1
-  differs from current browser behaviour, describe the browser, then
-  add a short aside such as "(SVG 2 dropped this)" or "(SVG 2
-  superseded `xlink:href` with `href`)" when it teaches something. The
-  codebase will move to SVG 2 documentation later.
-- Don't announce difficulty, don't announce structure, don't announce
-  the next file. The arc anchors carry navigation; the prose carries
-  content.
+- Sentences over paragraphs; paragraphs over bullets, except inside
+  the file header.
+- No emoji.
+- Don't announce difficulty, structure, or the next file. Arc anchors
+  carry navigation; prose carries content.
 
-## Symptom → file map
+## REVIEW markers and symptom map
 
-Lives in `CLAUDE.md` at the repo root, not inside `src/`. Format:
+REVIEW marker syntax — left wherever a judgement call could go either
+way. Mark generously; the user is the bar.
+
+```
+// REVIEW(annotation): <one-line concern>
+```
+
+The symptom map lives in `CLAUDE.md` at the repo root, written at the
+end of Phase C:
 
 ```
 | Symptom                                   | Start at                             | Why                              |
@@ -96,91 +184,24 @@ Lives in `CLAUDE.md` at the repo root, not inside `src/`. Format:
 | Attribute clears unexpectedly             | doc/document.js                      | empty-string → removeAttribute   |
 ```
 
-Written at the end of Phase C, when every file's role is fresh.
+## Process
 
-## REVIEW markers
+**Phases.** A — calibration on `grammars.js`, `overlay.js`, `main.js`.
+B — sign-off ("calibrated, continue"). C — independent batch over the
+remaining nine files; arc anchors and the symptom map written at the
+end. C.5 — single bounded self-audit. D — escalation message lists
+every REVIEW marker. E — cleanup applies user decisions and removes
+markers. No audit-after-fix step.
 
-Wherever a judgement call is made that the user would plausibly make
-differently:
-
-```
-// REVIEW(annotation): <one-line concern>
-```
-
-Mark generously. The user is the bar — over-marking is correct,
-under-marking is not.
-
-## Phase plan
-
-**A — calibration.** Three files, in this order:
-
-1. `src/rules/grammars.js`
-2. `src/view/overlay.js`
-3. `src/main.js`
-
-These three span the shape variety: data-and-spec, logic-and-cross-refs,
-wiring. Arc anchors deferred.
-
-**B — sign-off.** User reviews. This file is updated to capture any
-new rulings. User signs off explicitly ("calibrated, continue") before
-Phase C.
-
-**C — independent batch.** Remaining nine files in one batch on the
-same branch:
-
-- `src/io/file-io.js`
-- `src/view/canvas.js`
-- `src/view/attr-panel.js`
-- `src/view/tree-panel.js`
-- `src/doc/document.js`
-- `src/doc/edit-session.js`
-- `src/widgets/index.js`
-- `src/rules/queries.js`
-- `src/rules/index.js` (barrel — minimal annotation)
-
-REVIEW markers are left wherever a call was uncertain. Arc anchors and
-the `CLAUDE.md` symptom map are written at the end of this phase.
-
-**C.5 — self-audit.** A single bounded pass over the Phase C diff. See
-*Self-audit* below for the exact checks. Mechanical findings are fixed
-in place; subjective findings become REVIEW markers. The audit does
-not recurse — there is no audit-after-fix step.
-
-**D — escalation.** A single message lists every REVIEW marker:
-numbered, with file:line, choice made, alternative, and a one-sentence
-reason. The user replies only on items they would change.
-
-**E — cleanup.** The user's decisions are applied; every REVIEW marker
-is removed; the branch is review-ready.
-
-## Self-audit
-
-A single-pass sweep run once at C.5, bounded explicitly to avoid
-recursion: the audit runs once, mechanical findings are fixed in
-place, subjective findings become REVIEW markers rather than
-triggering another revision cycle.
-
-**Mechanical checks** (grep over the Phase C diff; fix in place if the
-fix is small):
-
-- `this is hard`, `this is interesting`, `let me`, `we'll`, `I'll` —
-  telling-not-showing or first-person leaks
-- Comment blocks longer than four lines
-- File headers longer than twelve lines
-- Files missing the "Common bugs" section in the header
-- Missing or malformed arc anchors
-- Emoji in source
-
-**Subjective checks** (one read-through; results become REVIEW markers,
-not immediate revisions):
-
-- Voice drift between earliest and latest Phase C files
-- Per-block density that does not match the difficulty of the code
-- SVG 1.1 / browser divergences without an SVG 2 aside where one would
-  teach something
-
-If a mechanical fix is non-trivial (more than ~10 lines of comment
-churn), it is escalated as a REVIEW marker instead of fixed in place.
+**Self-audit at C.5.** Mechanical checks grep the Phase C diff for the
+padding markers above plus oversize file headers (>15 lines), missing
+"Common bugs" sections, missing or malformed arc anchors, and emoji.
+Small mechanical fixes are made in place; large ones become REVIEW
+markers. Subjective checks: voice drift between files, blocks reading
+as flat lists, block length not matching density, function-name
+balance (over- or under-used), missing SVG 2 asides where one would
+teach. Subjective findings become REVIEW markers, not autonomous
+revisions.
 
 ## Out of scope
 

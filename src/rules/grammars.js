@@ -1,48 +1,47 @@
-// Per-VALUE_TYPE grammars: parse / serialise / default / translate.
-// Pure data and pure functions. No DOM, no widgets — those live in src/widgets/.
+// Per-VALUE_TYPE grammars: parse, serialise, translate.
 //
-//   parse(s)                    — string -> typed value
-//   serialise(v)                — typed value -> string
-//   default                     — typed default
-//   axisAware                   — true if translate honours the `axis` argument
-//   translate?(v, dx, dy, axis) — for compound types (Points, PathData,
-//                                 TransformList) axis is ignored — both
-//                                 deltas apply. For scalar coordinate types
-//                                 (Length, Coordinate, Number) axis ∈
-//                                 {'x','y',null} selects which delta to add;
-//                                 null leaves the value unchanged.
+// Inputs:  attribute strings + (dx, dy) deltas from view/overlay.js
+// Outputs: parsed values and translated strings for setAttribute
+// Common bugs:
+//   - drag moves the wrong attribute (translate hook absent, axis wrong)
+//   - asymmetric parse/serialise round-trip
+//   - units lost after a drag
 //
-// Each grammar in this file mirrors one clause of SVG 1.1 chapter 4 "Basic
-// Data Types" (types.html). The browser carries an equivalent table inside
-// its attribute parser; we only need round-trip parse/serialise plus a
-// translate hook so dragging a shape can rewrite the value in place.
+// prev: (set at end of Phase C)  ·  next: (set at end of Phase C)
 
-// Reads a float with a finite-number guard. The same float-token rule
-// appears throughout the chapter-4 grammars — every numeric leaf in the
-// spec ultimately reduces to "an optionally signed decimal", which is what
-// the browser's attribute parser also accepts.
+// Float parser with a finite-number guard. Used as the leaf of every
+// numeric grammar in this file because every numeric leaf in chapter 4
+// "Basic Data Types" (types.html) — <number>, <integer>, <length>,
+// opacity, the items inside <list-of-points> — ultimately reduces to
+// "an optionally signed decimal", which is also what the browser's
+// attribute parser accepts. Each grammar below mirrors one clause of
+// types.html and round-trips through this parser at the leaf.
 const NUM = (s, fallback = 0) => {
   const n = parseFloat(s);
   return Number.isFinite(n) ? n : fallback;
 };
 
-// Splits a length token into its number part and unit suffix. The shape
-// matches the <length> EBNF in types.html §4.5.11; the browser parses the
-// same form and remembers the unit so it can convert at render time.
+// Splits a length token into its number part and unit suffix. The
+// shape matches the <length> EBNF in types.html §4.5.11; the browser
+// parses the same form and keeps the unit so it can convert at render
+// time.
 const LENGTH_RE = /^\s*(-?\d*\.?\d+(?:[eE][-+]?\d+)?)\s*([a-z%]*)\s*$/;
 
-// Opaque text passed straight through. Covers everything the spec calls a
-// <string>, <CDATA> or named token (types.html §4.5.4); the browser stores
-// these as a DOMString and never interprets them.
+// Opaque text passed straight through. Covers everything the spec
+// types as <string>, <CDATA>, <ID>, <IRI> and the various named tokens
+// in types.html §4.5.4. The browser stores these as DOMStrings and
+// only acts on them at use time, so the editor is free to do the same.
 const STRING = {
   parse: (s) => s ?? '',
   serialise: (v) => v ?? '',
   default: '',
 };
 
-// A plain float, draggable on either axis. The spec's <number>
-// (types.html §4.5.16) is just an IEEE-754 value; the browser parses it
-// and feeds it directly into geometry.
+// A plain IEEE-754 float, draggable on either axis. The translate
+// hook is the bridge to view/overlay.js — it lets `buildDragPlan`
+// shift this attribute during a drag without ever knowing it is
+// dealing with a number, because the VALUE_TYPE name on the schema
+// row is enough to look up the right grammar.
 const NUMBER = {
   parse: (s) => NUM(s, 0),
   serialise: (v) => String(v),
@@ -51,9 +50,11 @@ const NUMBER = {
   translate: (v, dx, dy, axis) => v + (axis === 'x' ? dx : axis === 'y' ? dy : 0),
 };
 
-// Whole-number variant of <number>, used by attributes like `tabindex`.
-// The spec defines <integer> in types.html §4.5.10; the browser truncates
-// non-integers when parsing.
+// Whole-number variant of <number> (types.html §4.5.10), used by
+// attributes like `tabindex`. The truncation at write time is the only
+// non-obvious part: a fractional drag delta on an integer attribute
+// would otherwise round-trip to nonsense, and silently widening to a
+// float would surprise readers who later look the value up in the DTD.
 const INTEGER = {
   parse: (s) => Math.trunc(NUM(s, 0)),
   serialise: (v) => String(Math.trunc(v)),
@@ -63,10 +64,11 @@ const INTEGER = {
 };
 
 // A number paired with an optional CSS unit. We keep number and unit
-// separate so a drag adds to the number without disturbing the suffix.
-// types.html §4.5.11 defines <length>; the browser resolves the unit
-// (px, pt, em, %, …) against the current viewport when it draws the
-// element, so a value like "10mm" only becomes pixels at render time.
+// separate so a drag adds to the number without disturbing the suffix:
+// dragging "10mm" by 5 produces "15mm", not "15". types.html §4.5.11
+// defines <length>; the browser resolves the unit (px, pt, em, %, ...)
+// against the current viewport when it draws the element, which means
+// values like "10mm" only become pixels at render time.
 const LENGTH = {
   parse: (s) => {
     if (s == null || s === '') return { n: 0, unit: '' };
@@ -83,41 +85,44 @@ const LENGTH = {
   }),
 };
 
-// types.html §4.5.6 says <coordinate> is identical in syntax to <length>,
-// so the same grammar serves both. The browser likewise reuses one parser.
+// types.html §4.5.6 says <coordinate> is identical in syntax to
+// <length>, so the same grammar serves both. The browser likewise
+// reuses one parser.
 const COORDINATE = LENGTH;
 
-// A colour token — a name, `#rgb`, `#rrggbb`, `rgb(...)`, etc. We keep it
-// as a raw string and let the colour widget edit it. The browser parses
-// it into an sRGB triplet per types.html §4.5.5 and uses it during
-// painting.
+// A colour token — a CSS name, `#rgb`, `#rrggbb`, `rgb(...)`, etc.
+// Stored as a raw string and edited literally by the colour widget;
+// the browser parses it into an sRGB triplet per types.html §4.5.5
+// during painting.
 const COLOR = {
   parse: (s) => s ?? '',
   serialise: (v) => v ?? '',
   default: '',
 };
 
-// A paint specification: either a colour, or a `url(#id)` pointing at a
-// gradient or pattern, optionally followed by a fallback colour. We store
-// it verbatim. The browser dereferences the URL at render time, walks
-// the paint server (gradient stops, pattern children), and produces the
-// pixels — types.html §4.5.13 plus painting.html.
+// A paint specification: either a colour, or a `url(#id)` pointing at
+// a gradient or pattern, optionally followed by a fallback colour.
+// We store it verbatim. The browser dereferences the URL at render
+// time, walks the paint server (gradient stops, pattern children),
+// and produces the pixels — types.html §4.5.13 plus painting.html.
 const PAINT = COLOR;
 
-// A scalar opacity, clamped into [0,1]. Out-of-range values are pulled
-// back to the legal range here, matching what the browser does before it
-// composites — types.html §4.5.12, applied during the group/object
-// opacity step described in render.html.
+// A scalar opacity, clamped into [0,1]. Out-of-range values are
+// pulled back to the legal range here, matching what the browser does
+// before it composites — types.html §4.5.12, applied during the group
+// and object opacity step described in render.html.
 const OPACITY = {
   parse: (s) => Math.max(0, Math.min(1, NUM(s, 1))),
   serialise: (v) => String(v),
   default: 1,
 };
 
-// A list of x,y pairs separated by whitespace or commas. Used by
-// <polyline> and <polygon>. types.html §4.5.15 calls this
+// A list of x,y pairs separated by whitespace or commas, used by
+// `<polyline>` and `<polygon>`. types.html §4.5.15 calls this
 // <list-of-points>; the browser parses it into an SVGPointList and
-// strokes/fills the resulting polyline.
+// strokes or fills the resulting polyline. The translate hook shifts
+// every pair by (dx, dy), since both axes always move together for a
+// list — the `axis` argument only applies to scalar coordinates.
 const POINTS = {
   parse: (s) => {
     if (!s) return [];
@@ -131,13 +136,16 @@ const POINTS = {
   translate: (pts, dx, dy, _axis) => pts.map(([x, y]) => [x + dx, y + dy]),
 };
 
-// Shifts the absolute-coordinate operands of an SVG path `d` string by
-// (dx, dy). Walks the command tokens, leaves relative commands alone
-// because they are deltas from the previous point, but treats the very
-// first lowercase `m` as absolute since that is what the SVG path grammar
-// actually says (paths.html §8.3.2). The browser parses the same grammar
-// into an SVGPathSegList and rasterises each command — line, curve, arc —
-// according to the per-command rules in paths.html §8.3.
+// Shifts the absolute-coordinate operands of an SVG path `d` string
+// by (dx, dy). The walker tokenises commands and numbers, then leaves
+// relative commands alone — they are deltas from the previous point
+// and translating them would move the path twice. The one subtlety is
+// the very first lowercase `m`: paths.html §8.3.2 says it is treated
+// as absolute, and the trailing `absoluteFirstM` block fixes the case
+// up after the main loop. The browser parses the same grammar (SVG 2
+// deprecated SVGPathSegList, so direct DOM access to segments is gone
+// in modern engines) and rasterises each command — line, curve,
+// arc — per the per-command rules in paths.html §8.3.
 function translatePathData(d, dx, dy) {
   if (!d) return d;
   const tokens = String(d).match(/[MmLlHhVvCcSsQqTtAaZz]|-?\d*\.?\d+(?:[eE][-+]?\d+)?/g);
@@ -187,9 +195,10 @@ function translatePathData(d, dx, dy) {
   return out.join(' ');
 }
 
-// Wraps the path-data translator as a regular grammar entry. Round-tripping
-// is trivial — `d` is just a string — and translate defers to the walker
-// above. The browser parses the same grammar and rasterises the path.
+// Wraps the path-data translator above as a regular grammar entry.
+// Round-tripping is trivial — `d` is just a string — and the work
+// lives in the walker; the browser parses the same grammar and
+// rasterises the path.
 const PATH_DATA = {
   parse: (s) => s ?? '',
   serialise: (v) => v ?? '',
@@ -197,10 +206,11 @@ const PATH_DATA = {
   translate: (v, dx, dy, _axis) => translatePathData(v, dx, dy),
 };
 
-// A list of transform functions like `translate(...) rotate(...)`.
-// Drag prepends a `translate(dx dy)` so the element shifts in user space
-// without clobbering whatever transforms were already there. The browser
-// composes the list into the element's current transformation matrix
+// A list of transform functions like `translate(...) rotate(...)`. A
+// drag prepends a fresh `translate(dx dy)` rather than reaching in to
+// rewrite an existing operation, so the user's earlier rotations and
+// scales are preserved exactly. The browser composes the whole list
+// left-to-right into the element's current transformation matrix
 // (CTM) per coords.html §7.6 and applies it on every render.
 const TRANSFORM_LIST = {
   parse: (s) => s ?? '',
@@ -212,27 +222,35 @@ const TRANSFORM_LIST = {
   },
 };
 
-// A two-value enumeration spelled `true` / `false`. The spec models this
-// as a tiny enumeration in types.html §4.5; the browser accepts only the
-// two literals.
+// A two-value enumeration spelled `true`/`false`. Distinct from a JS
+// boolean because the wire format is the literal string; the spec
+// models this as an enumeration in types.html §4.5 and the browser
+// accepts only the two literals.
 const BOOLEAN = {
   parse: (s) => s === 'true',
   serialise: (v) => (v ? 'true' : 'false'),
   default: false,
 };
 
-// Generic keyword grammar — the allowed values come from the schema's
-// per-attribute enum list. types.html §4.5 covers enumerated values; the
-// browser matches the input against the list and rejects anything else.
+// Generic keyword grammar used for everything the spec calls an
+// enumerated value (types.html §4.5). The allowed values are not
+// fixed by the type — they live on the per-attribute schema row in
+// rules/queries.js as `attrInfo.enumValues` — so this grammar is
+// deliberately empty of validation and `getWidget` reads the list
+// when it builds the dropdown.
 const ENUMERATION = {
   parse: (s) => s ?? '',
   serialise: (v) => v ?? '',
   default: '',
 };
 
-// The lookup table from VALUE_TYPE name (as emitted by the schema
-// generator) to grammar. The browser keeps an equivalent dispatch table
-// hard-coded inside its attribute parser.
+// Registry: VALUE_TYPE name (as emitted by the schema generator)
+// mapped to grammar. This is what lets view/overlay.js drag any
+// attribute without knowing its type — the schema yields a type
+// name, that name indexes into this table, and the resulting grammar
+// is enough to parse, translate, and write the value back. The
+// browser keeps an equivalent dispatch table inside its attribute
+// parser, hard-coded in C++.
 const GRAMMARS = {
   CDATA: STRING,
   string: STRING,
@@ -282,13 +300,14 @@ const GRAMMARS = {
   enumeration: ENUMERATION,
 };
 
-// Looks up a grammar by VALUE_TYPE name, falling back to STRING for
-// anything the generator hasn't classified.
+// Lookup with a STRING fallback so unknown VALUE_TYPE names degrade
+// gracefully into "edit it as text" rather than crashing.
 export function getGrammar(typeName) {
   return GRAMMARS[typeName] || STRING;
 }
 
-// Tells drag planning whether a translate hook exists for this type.
+// Probe used by `buildDragPlan` to decide whether an attribute's
+// grammar can be translated at all before adding it to the plan.
 export function hasOwnTranslate(typeName) {
   return !!GRAMMARS[typeName]?.translate;
 }
